@@ -50,20 +50,20 @@ def fetch_and_save_tickers(start=1000, end=9999, batch_size=200, period='6mo', i
                 try:
                     single = yf.Ticker(t).history(period=period, interval=interval)
                     if single is None or getattr(single, 'empty', True):
-                            if verbose:
-                                print(f"{t}: no data")
-                            continue
-                        # keep common columns
-                        cols = [c for c in ['Open', 'High', 'Low', 'Close', 'Volume'] if c in single.columns]
-                        valid = single.dropna(subset=['Close']) if 'Close' in single.columns else single
-                        if valid is None or getattr(valid, 'empty', True):
-                            if verbose:
-                                print(f"{t}: no valid Close values, skipping save")
-                            continue
-                        path = os.path.join(out_dir, f"{t}.parquet")
-                        single[cols].to_parquet(path)
                         if verbose:
-                            print(f"Saved {t} -> {path}")
+                            print(f"{t}: no data")
+                        continue
+                    # keep common columns
+                    cols = [c for c in ['Open', 'High', 'Low', 'Close', 'Volume'] if c in single.columns]
+                    valid = single.dropna(subset=['Close']) if 'Close' in single.columns else single
+                    if valid is None or getattr(valid, 'empty', True):
+                        if verbose:
+                            print(f"{t}: no valid Close values, skipping save")
+                        continue
+                    path = os.path.join(out_dir, f"{t}.parquet")
+                    single[cols].to_parquet(path)
+                    if verbose:
+                        print(f"Saved {t} -> {path}")
                 except Exception as e:
                     if verbose:
                         print(f"{t}: fetch error {e}")
