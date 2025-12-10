@@ -26,7 +26,17 @@ def main():
         from screener import generate_jp_tickers_under_price
         tickers = generate_jp_tickers_under_price(max_price=max_price, start=1000, end=9999, batch_size=300)
 
-    results = scan_stocks(tickers, short_window=short_window, long_window=long_window, period=period, interval=interval, threshold=threshold)
+    # デフォルトは「MA52以上 かつ 陽線包み足」を要求する。必要に応じてフラグで切り替える。
+    results = scan_stocks(
+        tickers,
+        short_window=short_window,
+        long_window=long_window,
+        period=period,
+        interval=interval,
+        threshold=threshold,
+        require_ma52=True,
+        require_engulfing=True,
+    )
 
     print("\n=== 該当銘柄 ===")
     if len(results) == 0:

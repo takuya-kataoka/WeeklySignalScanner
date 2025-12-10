@@ -3,6 +3,9 @@ import time
 import yfinance as yf
 import pandas as pd
 
+# 今後取得しない除外銘柄
+EXCLUDED_TICKERS = {f"{code}.T" for code in [1326, 1543, 1555, 1586, 1593, 1618, 1621, 1672, 1674, 1679, 1736, 1795, 1807, 2012, 2013, 1325, 2050, 2250, 1656]}
+
 
 def _ensure_dir(path):
     os.makedirs(path, exist_ok=True)
@@ -16,7 +19,7 @@ def fetch_and_save_tickers(start=1000, end=9999, batch_size=200, period='6mo', i
     """
     _ensure_dir(out_dir)
 
-    all_codes = [f"{i:04d}.T" for i in range(start, end + 1)]
+    all_codes = [f"{i:04d}.T" for i in range(start, end + 1) if f"{i:04d}.T" not in EXCLUDED_TICKERS]
     total = len(all_codes)
     total_batches = (total - 1) // batch_size + 1
 

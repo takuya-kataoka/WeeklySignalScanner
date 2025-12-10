@@ -21,6 +21,10 @@ def parse_args():
     p.add_argument('--short-window', type=int, default=10)
     p.add_argument('--long-window', type=int, default=20)
     p.add_argument('--threshold', type=float, default=0.0)
+    p.add_argument('--require-ma52', dest='require_ma52', action='store_true', default=True, help='Require latest close >= MA52 (default: on)')
+    p.add_argument('--no-require-ma52', dest='require_ma52', action='store_false', help='Disable MA52 condition')
+    p.add_argument('--require-engulfing', dest='require_engulfing', action='store_true', default=True, help='Require latest bullish engulfing (default: on)')
+    p.add_argument('--no-require-engulfing', dest='require_engulfing', action='store_false', help='Disable bullish engulfing condition')
     p.add_argument('--verbose', action='store_true')
     return p.parse_args()
 
@@ -41,10 +45,10 @@ def main():
 
         if args.use_cache:
             from screener import scan_stocks_with_cache
-            results = scan_stocks_with_cache(tickers, cache_dir=args.cache_dir, short_window=args.short_window, long_window=args.long_window, period=args.period, interval=args.interval, threshold=args.threshold)
+            results = scan_stocks_with_cache(tickers, cache_dir=args.cache_dir, short_window=args.short_window, long_window=args.long_window, period=args.period, interval=args.interval, threshold=args.threshold, require_ma52=args.require_ma52, require_engulfing=args.require_engulfing)
         else:
             from screener import scan_stocks
-            results = scan_stocks(tickers, short_window=args.short_window, long_window=args.long_window, period=args.period, interval=args.interval, threshold=args.threshold)
+            results = scan_stocks(tickers, short_window=args.short_window, long_window=args.long_window, period=args.period, interval=args.interval, threshold=args.threshold, require_ma52=args.require_ma52, require_engulfing=args.require_engulfing)
 
         # write results
         if args.verbose:

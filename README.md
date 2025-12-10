@@ -30,6 +30,8 @@ python app.py
 - `period` (str): yfinance に渡すデータ取得期間（例: "2y"）
 - `interval` (str): データ間隔（例: "1wk"）
 - `threshold` (float): 判定の閾値（比率）。最新の短期MAが長期MAより `threshold` 以上上回る必要がある（例: 0.01 = 1%）
+- `require_ma52` (bool): 最新終値が週足MA52以上であることを要求する（デフォルト: True）
+- `require_engulfing` (bool): 直近の陽線包み足を要求する（デフォルト: True）
 
 `app.py` からこれらの値を変更して実行できます。
 
@@ -90,7 +92,31 @@ python -c "from data_fetcher import fetch_and_save_tickers; fetch_and_save_ticke
 
 現在の判定基準は以下です:
 
-- 週足で「陽線包み足（bullish engulfing）」が発生していること
-- かつ最新週の終値が週足の52週移動平均（MA52）以上であること
+- 週足で「陽線包み足（bullish engulfing）」が発生していること（`require_engulfing=True` の場合）
+- 最新週の終値が週足の52週移動平均（MA52）以上であること（`require_ma52=True` の場合）
 
 技術的には、直近2週のローソク足を見て、前週が陰線／当週が陽線で、当週の実体が前週の実体を包んでいる（当週の始値 <= 前週の終値 かつ 当週の終値 >= 前週の始値）場合を「陽線包み足」と判定します。その上で最新終値 >= MA52 の条件を満たす銘柄が出力されます。
+
+除外する銘柄（取得・スキャンとも常にスキップ）
+--------------------------------------------
+
+`1326.T`, `2012.T`, `2013.T`, `1325.T`, `2250.T`, `1656.T`
+
+Streamlitアプリで結果を表示
+---------------------------
+
+週足チャート、株価、出来高を表示するWebアプリを起動:
+
+```bash
+source .venv/bin/activate
+streamlit run app_streamlit.py
+```
+
+ブラウザで自動的に開きます（通常 http://localhost:8501）。
+
+機能:
+- 結果ファイル（`ma52_engulfing_*.csv`）から銘柄を選択表示
+- 週足ローソク足チャート + MA52ライン
+- 出来高バーチャート
+- 直近20週のデータテーブル
+- 全検出銘柄リスト

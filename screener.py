@@ -2,7 +2,10 @@ import yfinance as yf
 import pandas as pd
 from utils import calculate_ma
 
-def check_signal(ticker, short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0, data_df=None):
+# テストや取得対象から除外する銘柄
+EXCLUDED_TICKERS = {f"{code}.T" for code in [1326, 1543, 1555, 1586, 1593, 1618, 1621, 1672, 1674, 1679, 1736, 1795, 1807, 2012, 2013, 1325, 2050, 2250, 1656]}
+
+def check_signal(ticker, short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0, data_df=None, require_ma52=True, require_engulfing=True):
     """
     指定パラメータでティッカーのシグナルを判定する。
 
@@ -11,9 +14,15 @@ def check_signal(ticker, short_window=10, long_window=20, period="2y", interval=
     - period: データ取得期間 (yfinance に渡す文字列、例: "2y")
     - interval: データ間隔 (例: "1wk")
     - threshold: 判定の閾値（比率）。最新の短期MAが長期MAより threshold 以上上回る必要がある（例: 0.01 = 1%）
+    - require_ma52: 52週MA以上を条件に含めるか
+    - require_engulfing: 直近陽線包み足を条件に含めるか
     """
     if short_window >= long_window:
         print(f"{ticker}: short_window({short_window}) must be < long_window({long_window})")
+        return False
+
+    if ticker in EXCLUDED_TICKERS:
+        print(f"{ticker}: excluded")
         return False
 
     # If a DataFrame is provided (cache), use it; otherwise fetch from network
@@ -33,13 +42,19 @@ def check_signal(ticker, short_window=10, long_window=20, period="2y", interval=
     # - 週足で「陽線包み足 (bullish engulfing)」が発生していること
     # - かつ最新終値が週足の52週移動平均 (MA52) 以上であること
 
-    # 52週移動平均を追加
-    data["MA52"] = calculate_ma(data["Close"], 52)
-
     # 直近2本のローソク足が必要
     if len(data) < 2:
         print(f"{ticker}: データが足りません（2週未満）")
         return False
+
+    # MA52 を計算（必要な場合のみ）
+    ma52_latest = None
+    if require_ma52:
+        data["MA52"] = calculate_ma(data["Close"], 52)
+        ma52_latest = data["MA52"].iloc[-1]
+        if pd.isna(ma52_latest):
+            print(f"{ticker}: MA52が計算できません（データ不足）")
+            return False
 
     # 最新と1つ前の足
     prev = data.iloc[-2]
@@ -67,12 +82,6 @@ def check_signal(ticker, short_window=10, long_window=20, period="2y", interval=
         print(f"{ticker}: ローソク足データが不十分")
         return False
 
-    # MA52 の確認
-    ma52_latest = data["MA52"].iloc[-1]
-    if pd.isna(ma52_latest):
-        print(f"{ticker}: MA52が計算できません（データ不足）")
-        return False
-
     # bullish engulfing 判定:
     # - 前の足が陰線 (prev_close < prev_open)
     # - 今の足が陽線 (curr_close > curr_open)
@@ -81,28 +90,35 @@ def check_signal(ticker, short_window=10, long_window=20, period="2y", interval=
     is_curr_bull = curr_close > curr_open
     engulfs = (curr_open <= prev_close) and (curr_close >= prev_open)
 
-    if is_prev_bear and is_curr_bull and engulfs:
-        # 価格がMA52以上かチェック
-        if curr_close >= ma52_latest:
-            print(f"{ticker}: シグナル検出（陽線包み足） price={curr_close:.2f} MA52={ma52_latest:.2f}")
-            return True
-        else:
-            print(f"{ticker}: 陽線包み足だが価格がMA52未満 price={curr_close:.2f} MA52={ma52_latest:.2f}")
-            return False
+    cond_engulf = (not require_engulfing) or (is_prev_bear and is_curr_bull and engulfs)
+    cond_ma52 = (not require_ma52) or (curr_close >= ma52_latest)
+
+    if cond_engulf and cond_ma52:
+        msg_parts = []
+        if require_engulfing:
+            msg_parts.append("陽線包み足")
+        if require_ma52:
+            msg_parts.append(f"MA52以上 (price={curr_close:.2f} MA52={ma52_latest:.2f})")
+        detail = " & ".join(msg_parts) if msg_parts else "条件なし"
+        print(f"{ticker}: シグナル検出 ({detail})")
+        return True
 
     # 条件未達
     return False
 
 
-def scan_stocks(tickers, short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0):
+def scan_stocks(tickers, short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0, require_ma52=True, require_engulfing=True):
     """指定したティッカー群を順にチェックし、シグナルが出た銘柄のリストを返す。
 
     scan_stocks(..., short_window=10, long_window=20, period='2y', interval='1wk', threshold=0.0)
     """
     results = []
     for t in tickers:
+        if t in EXCLUDED_TICKERS:
+            print(f"{t}: excluded")
+            continue
         try:
-            ok = check_signal(t, short_window=short_window, long_window=long_window, period=period, interval=interval, threshold=threshold)
+            ok = check_signal(t, short_window=short_window, long_window=long_window, period=period, interval=interval, threshold=threshold, require_ma52=require_ma52, require_engulfing=require_engulfing)
             if ok:
                 results.append(t)
         except Exception as e:
@@ -110,23 +126,57 @@ def scan_stocks(tickers, short_window=10, long_window=20, period="2y", interval=
     return results
 
 
-def scan_stocks_with_cache(tickers, cache_dir='data', short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0):
+def scan_stocks_with_cache(tickers, cache_dir='data', short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0, require_ma52=True, require_engulfing=True):
     """Scan using locally cached per-ticker Parquet files if available.
     If a ticker has no cache file, it will be skipped.
     """
     from data_fetcher import load_ticker_from_cache
     results = []
     for t in tickers:
+        if t in EXCLUDED_TICKERS:
+            print(f"{t}: excluded")
+            continue
         try:
             df = load_ticker_from_cache(t, cache_dir=cache_dir)
             if df is None:
                 print(f"{t}: cache not found, skipping")
                 continue
-            ok = check_signal(t, short_window=short_window, long_window=long_window, period=period, interval=interval, threshold=threshold, data_df=df)
+            ok = check_signal(t, short_window=short_window, long_window=long_window, period=period, interval=interval, threshold=threshold, data_df=df, require_ma52=require_ma52, require_engulfing=require_engulfing)
             if ok:
                 results.append(t)
         except Exception as e:
             print(f"{t}: エラー - {e}")
+    return results
+
+
+def scan_above_ma52_with_cache(tickers, cache_dir='data'):
+    """Scan cached parquet files and return tickers whose latest Close >= MA52 (week-based SMA 52)."""
+    from data_fetcher import load_ticker_from_cache
+    import pandas as pd
+
+    results = []
+    for t in tickers:
+        if t in EXCLUDED_TICKERS:
+            continue
+        try:
+            df = load_ticker_from_cache(t, cache_dir=cache_dir)
+            if df is None:
+                # no cache
+                continue
+            df = df.copy()
+            df.dropna(subset=['Close'], inplace=True)
+            df.reset_index(drop=True, inplace=True)
+            if len(df) < 52:
+                continue
+            ma52 = df['Close'].rolling(window=52).mean().iloc[-1]
+            last = df['Close'].iloc[-1]
+            if pd.isna(ma52):
+                continue
+            if float(last) >= float(ma52):
+                results.append(t)
+        except Exception:
+            # ignore per-ticker errors
+            continue
     return results
 
 
@@ -142,7 +192,7 @@ def generate_jp_tickers_under_price(max_price=1000, start=1000, end=9999, batch_
     """
     results = []
     failures = []
-    all_codes = [f"{i:04d}.T" for i in range(start, end + 1)]
+    all_codes = [f"{i:04d}.T" for i in range(start, end + 1) if f"{i:04d}.T" not in EXCLUDED_TICKERS]
 
     total_batches = (len(all_codes) - 1) // batch_size + 1
     for batch_idx, i in enumerate(range(0, len(all_codes), batch_size), start=1):
