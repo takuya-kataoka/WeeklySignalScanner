@@ -1,0 +1,236 @@
+===============================================================================
+WeeklySignalScanner - 開発ガイド
+===============================================================================
+
+【概要】
+-------------------------------------------------------------------------------
+日本株の週足データを取得し、テクニカル分析を行うスクリーニングツール。
+52週移動平均（MA52）以上かつ陽線包み足パターンを検出し、Streamlitで可視化。
+
+主な機能:
+- 週足データのローカルキャッシュ（Parquet形式）
+- MA52 + 陽線包み足の検出
+- 除外銘柄の管理
+- Streamlit によるインタラクティブな可視化
+- CLIによる柔軟なスキャン実行
+
+
+【ファイル構成】
+-------------------------------------------------------------------------------
+├── screener.py          : スクリーニングロジック（MA52判定、包み足検出）
+├── data_fetcher.py      : yfinanceでデータ取得・Parquetキャッシュ管理
+├── utils.py             : MA計算などのユーティリティ関数
+├── run_universe.py      : CLI実行スクリプト（フルスキャン用）
+├── app_streamlit.py     : Streamlit可視化アプリ
+├── app.py               : 旧バージョンの実行スクリプト（参考用）
+├── requirements.txt     : 依存パッケージ一覧
+├── README.md            : プロジェクト全体のドキュメント
+├── data/                : 週足データのParquetキャッシュディレクトリ
+└── outputs/results/     : スキャン結果のCSV出力ディレクトリ
+
+
+【主要コンポーネント】
+-------------------------------------------------------------------------------
+
+■ screener.py
+  - EXCLUDED_TICKERS: 19銘柄の除外リスト（共通定義）
+  - check_signal(): 単一銘柄の条件判定
+    * require_ma52: 最新終値 >= MA52 を要求（デフォルト: True）
+    * require_engulfing: 陽線包み足を要求（デフォルト: True）
+  - scan_stocks(): ネットワーク経由でのバッチスキャン
+  - scan_stocks_with_cache(): Parquetキャッシュを使った高速スキャン
+  - generate_jp_tickers_under_price(): 価格フィルタ付き銘柄生成
+
+■ data_fetcher.py
+  - EXCLUDED_TICKERS: screener.pyと同じ除外リスト（同期必須）
+  - fetch_and_save_tickers(): 指定範囲の銘柄を取得してParquet保存
+  - load_ticker_from_cache(): Parquetからデータ読込
+
+■ app_streamlit.py
+  - 2つの表示モード:
+    1. 単一銘柄: 詳細チャート（600px）+ メトリクス + データテーブル
+    2. 10銘柄一覧: 2×5グリッド、コンパクト表示（300px）、価格順ソート
+  - @st.cache_data デコレータで1時間キャッシュ
+  - Plotlyによるローソク足 + MA52ライン + 出来高チャート
+
+
+【起動コマンド】
+-------------------------------------------------------------------------------
+
+## 環境セットアップ（初回のみ）
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+## データ取得（初回 or 定期更新時）
+# 小範囲テスト（コード7200-7210）
+python -c "from data_fetcher import fetch_and_save_tickers; \
+fetch_and_save_tickers(start=7200, end=7210, batch_size=5, \
+period='2y', interval='1wk', out_dir='data', verbose=True)"
+
+# 全銘柄（1000-9999）※数時間かかります
+python run_universe.py --fetch-only --start 1000 --end 9999
+
+## スクリーニング実行
+# キャッシュを使った高速スキャン（MA52 + 包み足）
+python run_universe.py --use-cache --require-ma52 --require-engulfing
+
+# MA52のみ（包み足なし）
+python run_universe.py --use-cache --require-ma52 --no-require-engulfing
+
+# 包み足のみ（MA52なし）
+python run_universe.py --use-cache --no-require-ma52 --require-engulfing
+
+## Streamlit可視化
+streamlit run app_streamlit.py
+# ブラウザで http://localhost:8501 が開きます
+
+
+【テクニカル定義】
+-------------------------------------------------------------------------------
+
+■ MA52（52週移動平均）
+  - 週足の終値に対して52期間の単純移動平均
+  - pandas.Series.rolling(52).mean() で計算
+  - 判定: 最新週の終値 >= MA52
+
+■ 陽線包み足（Bullish Engulfing）
+  - 前週: 陰線（始値 > 終値）
+  - 当週: 陽線（終値 > 始値）
+  - 当週の実体が前週の実体を完全に包む:
+    * 当週始値 <= 前週終値
+    * 当週終値 >= 前週始値
+  - 週足の直近2本のローソク足で判定
+
+■ 除外銘柄（EXCLUDED_TICKERS）
+  - 19銘柄: 1326, 1543, 1555, 1586, 1593, 1618, 1621, 1672, 1674, 1679,
+             1736, 1795, 1807, 2012, 2013, 1325, 2050, 2250, 1656
+  - すべて .T サフィックス付き（例: 1326.T）
+  - データ取得・スキャン・表示の全段階で自動除外
+
+
+【変更時の注意事項】
+-------------------------------------------------------------------------------
+
+【重要】除外銘柄の同期
+  ★ EXCLUDED_TICKERS を変更する場合は必ず以下2ファイルを同時更新:
+    - screener.py の EXCLUDED_TICKERS
+    - data_fetcher.py の EXCLUDED_TICKERS
+  理由: データ取得とスキャンで除外対象が一致しないとデータ不整合が発生
+
+【重要】条件フラグの一貫性
+  - run_universe.py の --require-ma52 / --require-engulfing フラグと
+  - screener.py の check_signal() のデフォルト引数を一致させる
+  - 両方とも True がデフォルト推奨（MA52 + 包み足の併用）
+
+【重要】データ期間の統一
+  - 週足データは period='2y', interval='1wk' で統一
+  - MA52計算には最低52週のデータが必要（≈1年分）
+  - 2年分取得することで余裕を持たせている
+
+【注意】Streamlit の unique key
+  - st.plotly_chart() などの動的生成コンポーネントには必ず key を指定
+  - 例: key=f"chart_{ticker}" または key=f"chart_grid_{ticker}"
+  - 重複するとエラーになるため、銘柄コードやインデックスで一意性を確保
+
+【注意】Parquet キャッシュの管理
+  - data/ ディレクトリが4000+ファイルで肥大化
+  - 定期的に古いキャッシュを削除または再取得を推奨
+  - ファイル名形式: {ticker}.parquet（例: 7203.T.parquet）
+
+【注意】Yahoo Finance API 制限
+  - 大量リクエストはレート制限に注意
+  - fetch_and_save_tickers() の sleep_between_batches で調整
+  - デフォルト 2秒、必要に応じて 5秒程度に増やす
+
+【注意】CSV結果ファイルの命名規則
+  - ma52_engulfing_{日付}.csv 形式
+  - app_streamlit.py が outputs/results/ から自動検索
+  - 日付形式: YYYY-MM-DD
+
+
+【開発フロー例】
+-------------------------------------------------------------------------------
+
+1. 新規条件を追加する場合
+   a) screener.py の check_signal() に条件ロジックを追加
+   b) run_universe.py に対応する --require-xxx フラグを追加
+   c) README.md と本ファイルのドキュメント更新
+   d) テストスキャンで動作確認
+
+2. 除外銘柄を追加する場合
+   a) screener.py の EXCLUDED_TICKERS に追加
+   b) data_fetcher.py の EXCLUDED_TICKERS に同じコードを追加
+   c) 既存のキャッシュから該当ファイルを削除（任意）
+   d) git commit で両ファイルをまとめてコミット
+
+3. 表示UIを変更する場合
+   a) app_streamlit.py の該当箇所を編集
+   b) streamlit run でローカルテスト
+   c) ブラウザでリロードして即座に反映確認
+   d) unique key の重複エラーに注意
+
+4. データ更新を行う場合
+   a) 週末または週明けに run_universe.py --fetch-only 実行
+   b) 更新後に --use-cache でスキャン実行
+   c) 結果CSVファイルを outputs/results/ に保存
+   d) Streamlit で新しい結果ファイルを選択して表示
+
+
+【トラブルシューティング】
+-------------------------------------------------------------------------------
+
+■ エラー: "EXCLUDED_TICKERS が定義されていない"
+  → screener.py と data_fetcher.py の両方に定義を追加
+
+■ エラー: "Duplicate element id"（Streamlit）
+  → st.plotly_chart() などに key=f"chart_{ticker}" を追加
+
+■ データが古い
+  → data/ ディレクトリのParquetファイルを削除して再取得
+  → または run_universe.py --fetch-only で上書き更新
+
+■ MA52が計算されない
+  → 週足データが52週未満の可能性
+  → period='2y' で十分なデータを取得しているか確認
+
+■ スキャン結果が0件
+  → 条件が厳しすぎる可能性
+  → --no-require-engulfing などでフラグを緩めてテスト
+  → または小範囲（7200-7300など）でデバッグ実行
+
+
+【パフォーマンス】
+-------------------------------------------------------------------------------
+
+- Parquetキャッシュ使用時: 4000銘柄を数分でスキャン可能
+- ネットワーク経由: 1銘柄あたり1-2秒、4000銘柄で1-2時間
+- Streamlit表示: 10銘柄グリッドで数秒、100銘柄でも10秒以内
+
+
+【推奨ワークフロー】
+-------------------------------------------------------------------------------
+
+週次定期実行:
+1. 週末または月曜朝に run_universe.py --fetch-only で全データ更新
+2. run_universe.py --use-cache --require-ma52 --require-engulfing でスキャン
+3. 結果CSVを outputs/results/ に日付付きで保存
+4. streamlit run app_streamlit.py で可視化・分析
+5. 必要に応じて git commit で結果を記録
+
+
+【開発環境】
+-------------------------------------------------------------------------------
+
+Dev Container 利用時:
+- VS Code で "Reopen in Container" を選択
+- Python 3.12、依存パッケージ、拡張機能が自動セットアップ
+- ポート8501（Streamlit）が自動転送
+- .devcontainer/devcontainer.json に設定記載
+
+
+【更新履歴】
+-------------------------------------------------------------------------------
+2025-12-10: 初版作成（Dev Container追加、Streamlit実装完了時点）
+
+===============================================================================

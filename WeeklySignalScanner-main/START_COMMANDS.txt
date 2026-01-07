@@ -1,0 +1,130 @@
+# WeeklySignalScanner - 起動／実行コマンド集
+
+※ 前提: ワークスペースルートは
+  /workspaces/WeeklySignalScanner-main/WeeklySignalScanner-main
+  仮想環境の python 実行パスは `.venv/bin/python` を想定しています。必要に応じてパスを置き換えてください。
+
+---
+
+【セットアップ（初回のみ）】
+1) 仮想環境作成と依存インストール
+```
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+説明: 必要なライブラリをインストールします。
+
+---
+
+【Streamlit（UI）】
+1) メイン（週足スクリーナー）起動
+```
+/workspaces/WeeklySignalScanner-main/.venv/bin/python -m streamlit run app_streamlit.py \
+  --server.headless=true --server.port=8501 --server.address=0.0.0.0
+```
+説明: ローカルで `http://localhost:8501` を開きます。
+
+2) 価格ソート表示（作成済みラッパー）起動  ← 無効化済み
+```
+# /workspaces/WeeklySignalScanner-main/.venv/bin/python -m streamlit run show_sorted_results_streamlit.py \
+#   --server.headless=true --server.port=8502 --server.address=0.0.0.0
+```
+# 説明: 抽出銘柄を現在価格でソートして表示します（`http://localhost:8502`）。
+
+3) 米国版 UI（ある場合）
+```
+/workspaces/WeeklySignalScanner-main/.venv/bin/python -m streamlit run app_streamlit_us.py \
+  --server.headless=true --server.port=8503 --server.address=0.0.0.0
+```
+
+4) バックグラウンドで起動しログを残す例
+```
+nohup /workspaces/WeeklySignalScanner-main/.venv/bin/python -m streamlit run app_streamlit.py \
+  --server.headless=true --server.port=8501 --server.address=0.0.0.0 > /tmp/streamlit_app.log 2>&1 &
+```
+説明: ログは `/tmp/streamlit_app.log` に書かれ、プロセスはバックグラウンドで実行されます。
+
+---
+
+【バッチ / スキャン系スクリプト】
+1) 全日本銘柄フルスキャン
+```
+/workspaces/WeeklySignalScanner-main/.venv/bin/python scan_all_jp_batch.py
+```
+説明: 1000〜9999等の範囲を分割してスキャンし、`outputs/results/...` に結果を追記します（長時間処理）。
+
+2) 現在価格をCSVに書く（バッチ）
+```
+/workspaces/WeeklySignalScanner-main/.venv/bin/python write_prices_to_csv_batch.py
+```
+
+3) 現在価格をCSVに書く（逐次）
+```
+/workspaces/WeeklySignalScanner-main/.venv/bin/python write_prices_to_csv.py
+```
+
+4) 月足包み足スキャン（日本）
+```
+/workspaces/WeeklySignalScanner-main/.venv/bin/python scan_monthly_engulfing_jp.py
+```
+
+5) 今日の値上がり率上位を保存
+```
+/workspaces/WeeklySignalScanner-main/.venv/bin/python scan_daily_gainers.py
+```
+
+6) 米国低価格銘柄スキャン（例）
+```
+/workspaces/WeeklySignalScanner-main/.venv/bin/python scan_low_price_comprehensive.py
+```
+
+---
+
+【ユーティリティ】
+1) 生成CSVのクリーニング（価格列のゴミ除去）
+```
+/workspaces/WeeklySignalScanner-main/.venv/bin/python clean_prices_csv.py
+```
+
+---
+
+【運用・ログ・プロセス管理】
+1) ログを追う
+```
+tail -f /tmp/streamlit_app.log
+tail -f /tmp/streamlit_sorted.log
+tail -f /tmp/scan_all_batch.log
+```
+
+2) 実行中 Streamlit の確認
+```
+ps aux | grep 'streamlit run' | grep -v grep
+```
+
+3) プロセス停止（PIDは `ps` で確認）
+```
+kill <PID>
+# 強制終了
+kill -9 <PID>
+```
+
+---
+
+【ファイル確認】
+```
+ls -lah outputs/results
+head -n 40 outputs/results/jp_all_ma52_engulfing_with_prices_2025-12-12.csv
+wc -l outputs/results/jp_all_ma52_engulfing_with_prices_2025-12-12.csv
+```
+
+---
+
+【注意事項】
+- yfinance を大量に叩く処理は遅く、データ欠損が発生します。`write_prices_to_csv_batch.py` の `batch_size`/`pause` を調整してください。
+- Streamlit を複数起動する場合はポートを変えてください（8501, 8502, 8503 等）。
+- 既に同ポートで動いているプロセスがあると起動できません（ログに "Port X is already in use" が出ます）。
+
+---
+
+必要ならこのファイルをベースに一括起動スクリプト `start_all.sh` を作成します。作成する場合は指示してください。

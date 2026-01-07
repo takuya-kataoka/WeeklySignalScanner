@@ -1,0 +1,5 @@
+nohup: ignoring input
+Traceback (most recent call last):
+  File "/workspaces/WeeklySignalScanner-main/WeeklySignalScanner-main/scripts/fetch_all_safe.py", line 1, in <module>
+    from data_fetcher import fetch_and_save_tickers
+ModuleNotFoundError: No module named 'data_fetcher'
