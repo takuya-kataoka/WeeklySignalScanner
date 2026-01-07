@@ -1,0 +1,8 @@
+# Ignore large/ephemeral files
+data/
+WeeklySignalScanner-main/data/
+*.log
+*.pid
+__pycache__/
+outputs/
+*.parquet
