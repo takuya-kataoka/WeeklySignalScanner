@@ -29,16 +29,24 @@ _scroll_js = r"""
 <script>
 (function() {
     try {
+        // If a force-top flag is set (by server-side when page changed), honor it first
+        let force = sessionStorage.getItem('wss_force_top');
+        if (force) {
+            window.scrollTo(0, 0);
+            sessionStorage.removeItem('wss_force_top');
+            sessionStorage.removeItem('wss_scroll');
+            return;
+        }
         let y = sessionStorage.getItem('wss_scroll');
         if (y) {
             window.scrollTo(0, parseInt(y));
             sessionStorage.removeItem('wss_scroll');
         }
+        // Remember scroll position on navigation-ish actions
         window.addEventListener('beforeunload', function() {
             sessionStorage.setItem('wss_scroll', window.scrollY || 0);
         });
         document.addEventListener('click', function(e){
-            // save on common interactive elements so next render can restore
             const tag = e.target && e.target.tagName;
             if (tag === 'INPUT' || tag === 'BUTTON' || tag === 'A' || tag === 'SELECT') {
                 sessionStorage.setItem('wss_scroll', window.scrollY || 0);
@@ -344,8 +352,8 @@ else:
     except Exception:
         prev_page = None
     if prev_page != page:
-        # スムーススクロールでトップへ移動
-        components.html("<script>window.scrollTo({top:0,behavior:'smooth'});</script>", height=0)
+        # ページ切替時はフラグを立てて次回レンダーで強制的にトップへ移動させる
+        components.html("<script>try{sessionStorage.setItem('wss_force_top','1'); window.scrollTo({top:0,behavior:'smooth'});}catch(e){};</script>", height=0)
     st.session_state['wss_prev_page'] = page
 
 # データ取得
