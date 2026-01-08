@@ -104,8 +104,12 @@ else:
 
 # 結果ファイルを選択（任意の CSV を選べるように変更）
 results_dir = base_dir / 'outputs' / 'results'
-# 最新の更新日時が上に来るように modification time (mtime) でソート
-all_files = sorted(results_dir.glob('*.csv'), key=lambda p: p.stat().st_mtime, reverse=True) if results_dir.exists() else []
+# 最新の更新日時が上に来るように modification time (mtime) でソート（新しい順）
+if results_dir.exists():
+    all_files = sorted(results_dir.glob('*.csv'), key=lambda p: p.stat().st_mtime, reverse=True)
+    all_files = list(all_files)
+else:
+    all_files = []
 
 if not all_files:
     st.error("結果ファイルが見つかりません")
@@ -120,7 +124,7 @@ for i, f in enumerate(all_files):
         break
 
 selected_file = st.sidebar.selectbox(
-    "結果ファイルを選択",
+    "結果ファイルを選択（新しい順）",
     all_files,
     index=default_index,
     format_func=lambda x: x.name
