@@ -59,7 +59,13 @@ def jp_filename(prefix: str, date: datetime = None):
     while '__' in safe:
         safe = safe.replace('__', '_')
     safe = safe.strip('_')
-    return f"outputs/results/{safe}_{date_str}.csv"
+    out_path = f"outputs/results/{safe}_{date_str}.csv"
+    # ファイル作成時にどのファイル名が使われたかを表示（ログ出力）
+    try:
+        print(f"[WSS] output filename: {out_path}")
+    except Exception:
+        pass
+    return out_path
 
 
 if __name__ == '__main__':
