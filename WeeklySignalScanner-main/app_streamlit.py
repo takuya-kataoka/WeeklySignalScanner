@@ -414,32 +414,32 @@ else:
     if prev_page != page:
         # ページ切替時はフラグを立てて次回レンダーで強制的にトップへ移動させる
         components.html("<script>try{sessionStorage.setItem('wss_force_top','1');}catch(e){};</script>", height=0)
-    st.session_state['wss_prev_page'] = page
+        st.session_state['wss_prev_page'] = page
 
         # --- デバッグバッジ: ページ切替時のフラグや現在ページをブラウザ上に表示（取り除ってOK）
         debug_html = r'''
-        <div id="wss_debug_badge" style="position:fixed;right:12px;top:80px;z-index:99999;padding:8px 10px;background:rgba(0,0,0,0.65);color:#fff;border-radius:6px;font-size:12px;font-family:monospace;">
-            <div style="font-weight:600;margin-bottom:4px;">WSS Debug</div>
-            Page: <span id="wss_dbg_page">-</span><br>
-            Flag: <span id="wss_dbg_flag">-</span>
-            <div style="margin-top:6px;font-size:11px;opacity:0.9;">(自動更新)</div>
-        </div>
-        <script>
-            function _wss_update(){
-                try{
-                    var p = sessionStorage.getItem('wss_prev_page') || '-';
-                    var f = sessionStorage.getItem('wss_force_top') ? '1' : '0';
-                    var elp = document.getElementById('wss_dbg_page');
-                    var elf = document.getElementById('wss_dbg_flag');
-                    if(elp) elp.innerText = p;
-                    if(elf) elf.innerText = f;
-                }catch(e){}
-            }
-            setInterval(_wss_update, 300);
-            _wss_update();
-            console.log('WSS debug badge active', sessionStorage.getItem('wss_force_top'));
-        </script>
-        '''
+<div id="wss_debug_badge" style="position:fixed;right:12px;top:80px;z-index:99999;padding:8px 10px;background:rgba(0,0,0,0.65);color:#fff;border-radius:6px;font-size:12px;font-family:monospace;">
+    <div style="font-weight:600;margin-bottom:4px;">WSS Debug</div>
+    Page: <span id="wss_dbg_page">-</span><br>
+    Flag: <span id="wss_dbg_flag">-</span>
+    <div style="margin-top:6px;font-size:11px;opacity:0.9;">(自動更新)</div>
+</div>
+<script>
+    function _wss_update(){
+        try{
+            var p = sessionStorage.getItem('wss_prev_page') || '-';
+            var f = sessionStorage.getItem('wss_force_top') ? '1' : '0';
+            var elp = document.getElementById('wss_dbg_page');
+            var elf = document.getElementById('wss_dbg_flag');
+            if(elp) elp.innerText = p;
+            if(elf) elf.innerText = f;
+        }catch(e){}
+    }
+    setInterval(_wss_update, 300);
+    _wss_update();
+    console.log('WSS debug badge active', sessionStorage.getItem('wss_force_top'));
+</script>
+'''
         components.html(debug_html, height=0)
 
 # データ取得
