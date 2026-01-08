@@ -49,7 +49,16 @@ def jp_filename(prefix: str, date: datetime = None):
     if date is None:
         date = datetime.now()
     date_str = date.strftime(DATE_FORMAT)
-    safe = prefix.replace(' ', '_')
+    # 自動的に冗長なキーワードを取り除く（ファイル名が長くなりすぎるため）
+    safe_prefix = str(prefix)
+    # remove common scan keywords
+    for token in ['MA52', 'M52', '陽線包み', '陽線', '包み']:
+        safe_prefix = safe_prefix.replace(token, '')
+    # collapse multiple underscores and spaces
+    safe = safe_prefix.replace(' ', '_')
+    while '__' in safe:
+        safe = safe.replace('__', '_')
+    safe = safe.strip('_')
     return f"outputs/results/{safe}_{date_str}.csv"
 
 
