@@ -186,6 +186,19 @@ selected_file = st.sidebar.selectbox(
     format_func=lambda x: x.name
 )
 
+# サイドバーで選択されたファイル名を折り返して表示（最大2行）
+try:
+    sel_name = selected_file.name if selected_file is not None else ''
+except Exception:
+    sel_name = str(selected_file)
+
+wrap_html = f"""
+<div style="max-width:320px; font-size:13px;">
+  <div style="white-space:normal; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">{sel_name}</div>
+</div>
+"""
+components.html(wrap_html, height=48)
+
 # 管理パネル: データのダウンロード / 抽出ファイル作成 / 予想ページ起動
 with st.sidebar.expander("管理: データ取得・スキャン・予想", expanded=False):
     st.write("データのダウンロードやスキャン、予想ページ起動ができます")
@@ -416,34 +429,7 @@ else:
         # さらに即時に数回 window.scrollTo を呼んで、レンダリングタイミングの差で
         # スクロールが阻害されるケースに対処する
         components.html("<script>try{sessionStorage.setItem('wss_force_top','1');var _a=0;var _id=setInterval(function(){try{window.scrollTo(0,0);document.documentElement.scrollTop=0;document.body.scrollTop=0;}catch(e){};_a++;if(_a>8)clearInterval(_id);},80);}catch(e){};</script>", height=0)
-        st.session_state['wss_prev_page'] = page
-
-        # --- デバッグバッジ: ページ切替時のフラグや現在ページをブラウザ上に表示（取り除ってOK）
-        debug_html = r'''
-<div id="wss_debug_badge" style="position:fixed;right:12px;top:80px;z-index:99999;padding:8px 10px;background:rgba(0,0,0,0.65);color:#fff;border-radius:6px;font-size:12px;font-family:monospace;">
-    <div style="font-weight:600;margin-bottom:4px;">WSS Debug</div>
-    Page: <span id="wss_dbg_page">-</span><br>
-    Flag: <span id="wss_dbg_flag">-</span>
-    <div style="margin-top:6px;font-size:11px;opacity:0.9;">(自動更新)</div>
-</div>
-<script>
-    function _wss_update(){
-        try{
-            var p = sessionStorage.getItem('wss_prev_page') || '-';
-            var f = sessionStorage.getItem('wss_force_top') ? '1' : '0';
-            var elp = document.getElementById('wss_dbg_page');
-            var elf = document.getElementById('wss_dbg_flag');
-            if(elp) elp.innerText = p;
-            if(elf) elf.innerText = f;
-        }catch(e){}
-    }
-    setInterval(_wss_update, 300);
-    _wss_update();
-    console.log('WSS debug badge active', sessionStorage.getItem('wss_force_top'));
-</script>
-'''
-        # 高さを確保してバッジを確実に表示させる
-        components.html(debug_html, height=140)
+    st.session_state['wss_prev_page'] = page
 
 # データ取得
 @st.cache_data(ttl=3600)
