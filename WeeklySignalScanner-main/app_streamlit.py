@@ -338,6 +338,15 @@ else:
     
     # 2列レイアウトで表示
     cols_per_row = 2
+    # ページ変更時にページトップへスクロールする（前回ページをセッションに保持して比較）
+    try:
+        prev_page = st.session_state.get('wss_prev_page', None)
+    except Exception:
+        prev_page = None
+    if prev_page != page:
+        # スムーススクロールでトップへ移動
+        components.html("<script>window.scrollTo({top:0,behavior:'smooth'});</script>", height=0)
+    st.session_state['wss_prev_page'] = page
 
 # データ取得
 @st.cache_data(ttl=3600)
