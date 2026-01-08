@@ -28,8 +28,8 @@ start() {
     echo "App not found: $APP"
     exit 1
   fi
-  nohup env STREAMLIT_BROWSER_GUESSING=false STREAMLIT_DISABLE_TELEMETRY=1 "$STREAMLIT" run "$APP" --server.port $PORT --server.headless true > "$LOG" 2>&1 &
-  echo $! > "$PIDFILE"
+    nohup env STREAMLIT_BROWSER_GUESSING=false STREAMLIT_DISABLE_TELEMETRY=1 "$STREAMLIT" run "$APP" --server.port $PORT --server.headless true > "$LOG" 2>&1 & 
+    echo $! > "$PIDFILE"
   echo "Started PID $(cat $PIDFILE), waiting for port $PORT..."
   for i in {1..15}; do
     ss -ltnp 2>/dev/null | grep -q ":$PORT " && break || sleep 1
