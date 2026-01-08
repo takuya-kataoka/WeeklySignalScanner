@@ -569,7 +569,7 @@ else:
         st.plotly_chart(fig, use_container_width=True, key=f"chart_{ticker}")
         
         # データテーブル（直近20週）
-        st.subheader("📊 直近20週のデータ")
+        st.subheader("直近20週のデータ")
         recent_data = data.tail(20)[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
         recent_data['MA52'] = data['Close'].rolling(52).mean().tail(20)
         recent_data = recent_data.iloc[::-1]  # 新しい順
@@ -584,7 +584,7 @@ else:
 st.plotly_chart(fig, use_container_width=True)
 
 # データテーブル（直近20週）
-st.subheader("📊 直近20週のデータ")
+st.subheader("直近20週のデータ")
 recent_data = data.tail(20)[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
 recent_data['MA52'] = data['Close'].rolling(52).mean().tail(20)
 recent_data = recent_data.iloc[::-1]  # 新しい順
