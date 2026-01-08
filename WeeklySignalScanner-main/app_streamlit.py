@@ -347,8 +347,9 @@ if display_mode == "10銘柄一覧":
                         low=data['Low'],
                         close=data['Close'],
                         name='価格',
-                        increasing_line_color='red',
-                        decreasing_line_color='blue',
+                        increasing=dict(line=dict(color='red', width=1.5)),
+                        decreasing=dict(line=dict(color='blue', width=1.5)),
+                        hovertemplate='日付: %{x|%Y-%m-%d}<br>始値: %{open:.0f}<br>高値: %{high:.0f}<br>安値: %{low:.0f}<br>終値: %{close:.0f}<extra></extra>',
                         showlegend=False
                     ),
                     row=1, col=1
@@ -382,13 +383,13 @@ if display_mode == "10銘柄一覧":
                 
                 # レイアウト調整（コンパクト）
                 fig.update_layout(
-                    height=300,
+                    height=340,
                     margin=dict(l=30, r=10, t=20, b=20),
                     xaxis_rangeslider_visible=False,
                     hovermode='x unified',
                     template='plotly_white',
                     showlegend=False,
-                    font=dict(size=8)
+                    font=dict(size=9)
                 )
                 
                 fig.update_yaxes(title_text="", row=1, col=1)
@@ -451,8 +452,9 @@ else:
                 low=data['Low'],
                 close=data['Close'],
                 name='価格',
-                increasing_line_color='red',
-                decreasing_line_color='blue'
+                increasing=dict(line=dict(color='red', width=2.5)),
+                decreasing=dict(line=dict(color='blue', width=2.5)),
+                hovertemplate='日付: %{x|%Y-%m-%d}<br>始値: %{open:.0f}<br>高値: %{high:.0f}<br>安値: %{low:.0f}<br>終値: %{close:.0f}<extra></extra>'
             ),
             row=1, col=1
         )
@@ -485,11 +487,23 @@ else:
         
         # レイアウト調整
         fig.update_layout(
-            height=600,
-            xaxis_rangeslider_visible=False,
+            height=640,
+            xaxis_rangeslider_visible=True,
             hovermode='x unified',
             template='plotly_white',
-            showlegend=True
+            showlegend=True,
+            xaxis=dict(
+                rangeselector=dict(
+                    buttons=list([
+                        dict(count=3, label="3m", step="month", stepmode="backward"),
+                        dict(count=6, label="6m", step="month", stepmode="backward"),
+                        dict(count=1, label="1y", step="year", stepmode="backward"),
+                        dict(step="all")
+                    ])
+                ),
+                rangeslider=dict(visible=True),
+                type="date"
+            )
         )
         
         fig.update_yaxes(title_text="株価 (¥)", row=1, col=1)
