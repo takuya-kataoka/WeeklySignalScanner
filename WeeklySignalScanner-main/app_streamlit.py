@@ -568,41 +568,4 @@ else:
         
         st.plotly_chart(fig, use_container_width=True, key=f"chart_{ticker}")
         
-        # データテーブル（直近20週）
-        st.subheader("直近20週のデータ")
-        recent_data = data.tail(20)[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
-        recent_data['MA52'] = data['Close'].rolling(52).mean().tail(20)
-        recent_data = recent_data.iloc[::-1]  # 新しい順
-        st.dataframe(recent_data.style.format({
-            'Open': '¥{:,.2f}',
-            'High': '¥{:,.2f}',
-            'Low': '¥{:,.2f}',
-            'Close': '¥{:,.2f}',
-            'Volume': '{:,.0f}',
-            'MA52': '¥{:,.2f}'
-        }), use_container_width=True)
-st.plotly_chart(fig, use_container_width=True)
-
-# データテーブル（直近20週）
-st.subheader("直近20週のデータ")
-recent_data = data.tail(20)[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
-recent_data['MA52'] = data['Close'].rolling(52).mean().tail(20)
-recent_data = recent_data.iloc[::-1]  # 新しい順
-st.dataframe(recent_data.style.format({
-    'Open': '¥{:,.2f}',
-    'High': '¥{:,.2f}',
-    'Low': '¥{:,.2f}',
-    'Close': '¥{:,.2f}',
-    'Volume': '{:,.0f}',
-    'MA52': '¥{:,.2f}'
-}), use_container_width=True)
-
-# 銘柄リスト表示
-with st.expander("🔍 全検出銘柄リスト"):
-    if 'price' in df.columns and 'ma52' in df.columns:
-        display_df = df.copy()
-        display_df['price'] = display_df['price'].apply(lambda x: f"¥{x:,.2f}")
-        display_df['ma52'] = display_df['ma52'].apply(lambda x: f"¥{x:,.2f}")
-        st.dataframe(display_df, use_container_width=True)
-    else:
-        st.dataframe(df, use_container_width=True)
+        # (直近20週のデータ表示と全検出銘柄リストを非表示にしました)
