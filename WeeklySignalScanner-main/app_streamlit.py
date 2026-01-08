@@ -104,10 +104,37 @@ else:
 
 # 結果ファイルを選択（任意の CSV を選べるように変更）
 results_dir = base_dir / 'outputs' / 'results'
-# 最新の更新日時が上に来るように modification time (mtime) でソート（新しい順）
+# ファイル名に YYYY-MM-DD または YYYYMMDD の日付が含まれている場合は
+# それを優先して新しい順にソートする。見つからなければファイルの mtime を使う。
+import datetime as _dt
+import re as _re
+
+def _extract_date_from_filename(path_obj):
+    name = path_obj.name
+    # YYYY-MM-DD を優先
+    m = _re.search(r'(\d{4}-\d{2}-\d{2})', name)
+    if m:
+        try:
+            return _dt.datetime.strptime(m.group(1), '%Y-%m-%d')
+        except Exception:
+            pass
+    # 次に YYYYMMDD
+    m2 = _re.search(r'(\d{8})', name)
+    if m2:
+        try:
+            return _dt.datetime.strptime(m2.group(1), '%Y%m%d')
+        except Exception:
+            pass
+    # 最終手段で mtime
+    try:
+        return _dt.datetime.fromtimestamp(path_obj.stat().st_mtime)
+    except Exception:
+        return _dt.datetime.min
+
 if results_dir.exists():
-    all_files = sorted(results_dir.glob('*.csv'), key=lambda p: p.stat().st_mtime, reverse=True)
-    all_files = list(all_files)
+    files = list(results_dir.glob('*.csv'))
+    files.sort(key=lambda p: _extract_date_from_filename(p), reverse=True)
+    all_files = files
 else:
     all_files = []
 
