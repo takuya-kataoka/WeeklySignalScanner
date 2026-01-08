@@ -29,19 +29,48 @@ _scroll_js = r"""
 <script>
 (function() {
     try {
-        // If a force-top flag is set (by server-side when page changed), honor it first
-        let force = sessionStorage.getItem('wss_force_top');
-        if (force) {
-            window.scrollTo(0, 0);
-            sessionStorage.removeItem('wss_force_top');
-            sessionStorage.removeItem('wss_scroll');
-            return;
+        // Robust scroll-to-top helper: when wss_force_top is set, attempt to scroll to 0 repeatedly
+        function _forceScrollTopIfRequested() {
+            try {
+                var force = sessionStorage.getItem('wss_force_top');
+                if (!force) return false;
+                var attempts = 0;
+                var maxAttempts = 25;
+                var id = setInterval(function(){
+                    window.scrollTo(0,0);
+                    // also try setting both documentElement and body for compatibility
+                    try{document.documentElement.scrollTop = 0;}catch(e){}
+                    try{document.body.scrollTop = 0;}catch(e){}
+                    attempts++;
+                    if ((window.scrollY === 0 || attempts >= maxAttempts)){
+                        clearInterval(id);
+                        sessionStorage.removeItem('wss_force_top');
+                        sessionStorage.removeItem('wss_scroll');
+                    }
+                }, 80);
+                return true;
+            } catch (e) { return false; }
         }
-        let y = sessionStorage.getItem('wss_scroll');
-        if (y) {
-            window.scrollTo(0, parseInt(y));
-            sessionStorage.removeItem('wss_scroll');
+
+        // On DOM ready try to honor a force-top request first
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            if (_forceScrollTopIfRequested()) return;
+        } else {
+            document.addEventListener('DOMContentLoaded', function(){ _forceScrollTopIfRequested(); });
         }
+
+        // If no force-top was requested, restore saved scroll position (when present)
+        var y = sessionStorage.getItem('wss_scroll');
+        if (y && !sessionStorage.getItem('wss_force_top')) {
+            // try to restore after a short delay so layout stabilizes
+            setTimeout(function(){
+                try{ window.scrollTo(0, parseInt(y)); }catch(e){}
+                try{ document.documentElement.scrollTop = parseInt(y); }catch(e){}
+                try{ document.body.scrollTop = parseInt(y); }catch(e){}
+                sessionStorage.removeItem('wss_scroll');
+            }, 120);
+        }
+
         // Remember scroll position on navigation-ish actions
         window.addEventListener('beforeunload', function() {
             sessionStorage.setItem('wss_scroll', window.scrollY || 0);
@@ -384,7 +413,7 @@ else:
         prev_page = None
     if prev_page != page:
         # ページ切替時はフラグを立てて次回レンダーで強制的にトップへ移動させる
-        components.html("<script>try{sessionStorage.setItem('wss_force_top','1'); window.scrollTo({top:0,behavior:'smooth'});}catch(e){};</script>", height=0)
+        components.html("<script>try{sessionStorage.setItem('wss_force_top','1');}catch(e){};</script>", height=0)
     st.session_state['wss_prev_page'] = page
 
 # データ取得
