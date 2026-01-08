@@ -413,7 +413,9 @@ else:
         prev_page = None
     if prev_page != page:
         # ページ切替時はフラグを立てて次回レンダーで強制的にトップへ移動させる
-        components.html("<script>try{sessionStorage.setItem('wss_force_top','1');}catch(e){};</script>", height=0)
+        # さらに即時に数回 window.scrollTo を呼んで、レンダリングタイミングの差で
+        # スクロールが阻害されるケースに対処する
+        components.html("<script>try{sessionStorage.setItem('wss_force_top','1');var _a=0;var _id=setInterval(function(){try{window.scrollTo(0,0);document.documentElement.scrollTop=0;document.body.scrollTop=0;}catch(e){};_a++;if(_a>8)clearInterval(_id);},80);}catch(e){};</script>", height=0)
         st.session_state['wss_prev_page'] = page
 
         # --- デバッグバッジ: ページ切替時のフラグや現在ページをブラウザ上に表示（取り除ってOK）
