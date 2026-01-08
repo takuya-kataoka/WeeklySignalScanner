@@ -440,7 +440,8 @@ else:
     console.log('WSS debug badge active', sessionStorage.getItem('wss_force_top'));
 </script>
 '''
-        components.html(debug_html, height=0)
+        # 高さを確保してバッジを確実に表示させる
+        components.html(debug_html, height=140)
 
 # データ取得
 @st.cache_data(ttl=3600)
