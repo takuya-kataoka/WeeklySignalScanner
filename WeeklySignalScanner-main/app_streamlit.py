@@ -20,6 +20,53 @@ base_dir = Path(__file__).resolve().parent
 device_mode = st.sidebar.selectbox('表示デバイス', ['PC', 'Mobile'], index=0)
 IS_MOBILE = (device_mode == 'Mobile')
 
+# テーマ選択（ライト/ダーク/高コントラスト）
+theme_mode = st.sidebar.selectbox('テーマ', ['ライト', 'ダーク', '高コントラスト'], index=0)
+
+# Inject small JS to preserve scroll position across Streamlit reruns (page changes)
+import streamlit.components.v1 as components
+_scroll_js = r"""
+<script>
+(function() {
+    try {
+        let y = sessionStorage.getItem('wss_scroll');
+        if (y) {
+            window.scrollTo(0, parseInt(y));
+            sessionStorage.removeItem('wss_scroll');
+        }
+        window.addEventListener('beforeunload', function() {
+            sessionStorage.setItem('wss_scroll', window.scrollY || 0);
+        });
+        document.addEventListener('click', function(e){
+            // save on common interactive elements so next render can restore
+            const tag = e.target && e.target.tagName;
+            if (tag === 'INPUT' || tag === 'BUTTON' || tag === 'A' || tag === 'SELECT') {
+                sessionStorage.setItem('wss_scroll', window.scrollY || 0);
+            }
+        });
+    } catch (err) { /* ignore */ }
+})();
+</script>
+"""
+components.html(_scroll_js, height=0)
+
+# Theme settings
+if theme_mode == 'ダーク':
+        PLOTLY_TEMPLATE = 'plotly_dark'
+        BULL_COLOR = '#ff7f0e'  # orange-ish
+        BEAR_COLOR = '#1f77b4'  # blue-ish
+        MA_COLOR = '#f7b267'
+elif theme_mode == '高コントラスト':
+        PLOTLY_TEMPLATE = 'plotly_white'
+        BULL_COLOR = '#00a000'
+        BEAR_COLOR = '#b00000'
+        MA_COLOR = '#ff9900'
+else:
+        PLOTLY_TEMPLATE = 'plotly_white'
+        BULL_COLOR = 'red'
+        BEAR_COLOR = 'blue'
+        MA_COLOR = 'orange'
+
 # レスポンシブCSSを挿入（モバイル向けにフォントやパディングを調整）
 if IS_MOBILE:
     st.markdown(
@@ -347,8 +394,8 @@ if display_mode == "10銘柄一覧":
                         low=data['Low'],
                         close=data['Close'],
                         name='価格',
-                        increasing=dict(line=dict(color='red', width=1.5)),
-                        decreasing=dict(line=dict(color='blue', width=1.5)),
+                        increasing=dict(line=dict(color=BULL_COLOR, width=1.5)),
+                        decreasing=dict(line=dict(color=BEAR_COLOR, width=1.5)),
                         hovertemplate='日付: %{x|%Y-%m-%d}<br>始値: %{open:.0f}<br>高値: %{high:.0f}<br>安値: %{low:.0f}<br>終値: %{close:.0f}<extra></extra>',
                         showlegend=False
                     ),
@@ -361,14 +408,14 @@ if display_mode == "10銘柄一覧":
                         x=data.index,
                         y=data['Close'].rolling(52).mean(),
                         name='MA52',
-                        line=dict(color='orange', width=1),
+                        line=dict(color=MA_COLOR, width=1.5),
                         showlegend=False
                     ),
                     row=1, col=1
                 )
                 
                 # 出来高
-                colors = ['red' if data['Close'].iloc[k] >= data['Open'].iloc[k] else 'blue' 
+                colors = [BULL_COLOR if data['Close'].iloc[k] >= data['Open'].iloc[k] else BEAR_COLOR
                           for k in range(len(data))]
                 
                 fig.add_trace(
@@ -387,7 +434,7 @@ if display_mode == "10銘柄一覧":
                     margin=dict(l=30, r=10, t=20, b=20),
                     xaxis_rangeslider_visible=False,
                     hovermode='x unified',
-                    template='plotly_white',
+                    template=PLOTLY_TEMPLATE,
                     showlegend=False,
                     font=dict(size=9)
                 )
@@ -452,8 +499,8 @@ else:
                 low=data['Low'],
                 close=data['Close'],
                 name='価格',
-                increasing=dict(line=dict(color='red', width=2.5)),
-                decreasing=dict(line=dict(color='blue', width=2.5)),
+                increasing=dict(line=dict(color=BULL_COLOR, width=2.5)),
+                decreasing=dict(line=dict(color=BEAR_COLOR, width=2.5)),
                 hovertemplate='日付: %{x|%Y-%m-%d}<br>始値: %{open:.0f}<br>高値: %{high:.0f}<br>安値: %{low:.0f}<br>終値: %{close:.0f}<extra></extra>'
             ),
             row=1, col=1
@@ -465,7 +512,7 @@ else:
                 x=data.index,
                 y=data['Close'].rolling(52).mean(),
                 name='MA52',
-                line=dict(color='orange', width=2)
+                line=dict(color=MA_COLOR, width=2)
             ),
             row=1, col=1
         )
@@ -490,7 +537,7 @@ else:
             height=640,
             xaxis_rangeslider_visible=True,
             hovermode='x unified',
-            template='plotly_white',
+            template=PLOTLY_TEMPLATE,
             showlegend=True,
             xaxis=dict(
                 rangeselector=dict(
