@@ -46,7 +46,7 @@ def fetch_url(session: requests.Session, url: str, timeout: int = 20) -> Optiona
 
 def find_race_links_on_date(html: str) -> List[str]:
     """日付ページの HTML からレース結果ページへのリンクを抽出する（汎用的）。"""
-    soup = BeautifulSoup(html, 'lxml')
+    soup = BeautifulSoup(html, 'html.parser')
     links = []
     for a in soup.find_all('a', href=True):
         href = a['href']
@@ -63,7 +63,7 @@ def parse_race_result(html: str, base_url: str) -> List[Dict]:
 
     返却する dict 要素: horse_name, horse_url, rank, jockey, weight, odds (可能なら), horse_no
     """
-    soup = BeautifulSoup(html, 'lxml')
+    soup = BeautifulSoup(html, 'html.parser')
     results = []
 
     # 多くの netkeiba 結果ページは class 'race_table_01' のテーブルを利用
@@ -149,7 +149,7 @@ def parse_race_result(html: str, base_url: str) -> List[Dict]:
 
 def parse_horse_page_for_pedigree(html: str) -> Dict[str, Optional[str]]:
     """馬ページ HTML から '父' と '母父' を抽出する。"""
-    soup = BeautifulSoup(html, 'lxml')
+    soup = BeautifulSoup(html, 'html.parser')
     father = None
     damsire = None
 
