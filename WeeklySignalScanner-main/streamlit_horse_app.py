@@ -134,6 +134,22 @@ with st.sidebar.expander('Netkeiba スクレイプ (Parquet 保存)', expanded=F
         except Exception as e:
             st.error(f'ジョブ起動失敗: {e}')
 
+# 取得済み Parquet を読み込んでレース毎に表示する UI
+with st.sidebar.expander('Netkeiba: 取得済み Parquet をロードして確認', expanded=False):
+    import glob
+    parquet_files = sorted(glob.glob('outputs/*.parquet'))
+    if not parquet_files:
+        st.write('outputs/*.parquet が見つかりません')
+    else:
+        sel_parquet = st.selectbox('Parquet ファイルを選択', parquet_files)
+        if st.button('ファイルを読み込む'):
+            try:
+                df_scraped = pd.read_parquet(sel_parquet)
+                st.session_state['df_scraped'] = df_scraped
+                st.success(f'読み込みました: {sel_parquet} （行数: {len(df_scraped)}）')
+            except Exception as e:
+                st.error(f'読み込み失敗: {e}')
+
 st.markdown('---')
 
 if 'df_raw' in st.session_state:
@@ -233,3 +249,27 @@ if 'df_raw' in st.session_state:
 
 else:
     st.info('まずは左のサイドバーでカラム設定を確認し、CSVをアップロードしてください。')
+
+# 取得済みスクレイプ結果の詳細表示
+if 'df_scraped' in st.session_state:
+    df_s = st.session_state['df_scraped']
+    st.markdown('## 取得済み Netkeiba データの確認')
+    st.write(f'行数: {len(df_s)}')
+    # 日付 or race_url で絞り込み
+    if 'race_date' in df_s.columns:
+        dates = sorted(df_s['race_date'].dropna().unique())
+        sel_date = st.selectbox('レース日で絞り込む', ['(全て)'] + dates)
+        if sel_date and sel_date != '(全て)':
+            df_filtered = df_s[df_s['race_date'] == sel_date]
+        else:
+            df_filtered = df_s
+    else:
+        df_filtered = df_s
+
+    if 'race_url' in df_filtered.columns:
+        urls = list(df_filtered['race_url'].dropna().unique())
+        sel_url = st.selectbox('レースURLを選択', ['(全て)'] + urls)
+        if sel_url and sel_url != '(全て)':
+            df_filtered = df_filtered[df_filtered['race_url'] == sel_url]
+
+    st.dataframe(df_filtered.reset_index(drop=True).head(500))
