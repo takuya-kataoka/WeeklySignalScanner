@@ -20,7 +20,10 @@ from typing import Optional, Dict, Any, Tuple, List
 import pandas as pd
 import numpy as np
 
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+except Exception:
+    plt = None
 
 try:
     import lightgbm as lgb
