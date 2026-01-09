@@ -93,6 +93,19 @@ def load_and_show():
 if st.button('CSV読み込み・表示'):
     load_and_show()
 
+# オフライン検証用: サンプルデータを読み込む
+if st.button('サンプルデータを読み込む (オフライン用)'):
+    project_root = Path(__file__).resolve().parent.parent
+    sample_res = project_root / 'samples' / 'sample_horse_results.csv'
+    sample_ped = project_root / 'samples' / 'sample_pedigree.csv'
+    try:
+        df = proc.load_and_merge_results_pedigree(str(sample_res), str(sample_ped), on='horse_id')
+        st.session_state['df_raw'] = df
+        st.success('サンプルデータを読み込みました')
+        st.dataframe(df.head(200))
+    except Exception as e:
+        st.error('サンプルデータの読み込みに失敗しました: ' + str(e))
+
 # Netkeiba スクレイプ UI
 with st.sidebar.expander('Netkeiba スクレイプ (Parquet 保存)', expanded=False):
     st.write('netkeiba のレース結果を取得して Parquet に保存します。')
