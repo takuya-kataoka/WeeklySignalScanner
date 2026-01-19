@@ -5,7 +5,7 @@ from utils import calculate_ma
 # EXCLUDED_TICKERS は data_fetcher から取得する（検証CSVで追加されたものを含む）
 from data_fetcher import EXCLUDED_TICKERS
 
-def check_signal(ticker, short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0, data_df=None, require_ma52=True, require_engulfing=True, relaxed_engulfing=False):
+def check_signal(ticker, short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0, data_df=None, require_ma52=True, require_engulfing=True, relaxed_engulfing=False, reference_date=None):
     """
     指定パラメータでティッカーのシグナルを判定する。
 
@@ -44,8 +44,42 @@ def check_signal(ticker, short_window=10, long_window=20, period="2y", interval=
             # if resample fails, fall back to using the cache as-is
             pass
 
-    # remove rows with missing Close and reset index (we operate on positional rows later)
-    data.dropna(inplace=True)
+    # remove rows with missing Close
+    data = data.dropna()
+    # Work with a copy and ensure datetime index for date-based selection
+    data2 = data.copy()
+    if not isinstance(data2.index, pd.DatetimeIndex):
+        try:
+            data2.index = pd.to_datetime(data2.index)
+        except Exception:
+            pass
+
+    # If reference_date is provided, select the weekly row whose index <= reference_date
+    if reference_date is not None:
+        try:
+            ref = pd.to_datetime(reference_date)
+            # find last index <= ref
+            candidates = data2.index[data2.index <= ref]
+            if len(candidates) == 0:
+                print(f"{ticker}: 指定日({reference_date})までのデータがありません")
+                return False
+            # target is the last candidate
+            target_idx = candidates[-1]
+            # we need the target row and the previous row
+            pos = data2.index.get_loc(target_idx)
+            if pos == 0:
+                print(f"{ticker}: 指定日({reference_date})の時点で前週データがありません")
+                return False
+            # slice to include upto target_idx
+            data = data2.iloc[:pos+1].copy()
+        except Exception as e:
+            print(f"{ticker}: reference_date 処理でエラー - {e}")
+            return False
+    else:
+        # reset index for positional access when using latest rows
+        data = data2.copy()
+
+    # reset index (drop original datetime index) so positional iloc works below
     data.reset_index(drop=True, inplace=True)
 
     # 新判定ロジック:
@@ -128,7 +162,7 @@ def check_signal(ticker, short_window=10, long_window=20, period="2y", interval=
     return False
 
 
-def scan_stocks(tickers, short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0, require_ma52=True, require_engulfing=True):
+def scan_stocks(tickers, short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0, require_ma52=True, require_engulfing=True, reference_date=None):
     """指定したティッカー群を順にチェックし、シグナルが出た銘柄のリストを返す。
 
     scan_stocks(..., short_window=10, long_window=20, period='2y', interval='1wk', threshold=0.0)
@@ -139,7 +173,7 @@ def scan_stocks(tickers, short_window=10, long_window=20, period="2y", interval=
             print(f"{t}: excluded")
             continue
         try:
-            ok = check_signal(t, short_window=short_window, long_window=long_window, period=period, interval=interval, threshold=threshold, require_ma52=require_ma52, require_engulfing=require_engulfing)
+            ok = check_signal(t, short_window=short_window, long_window=long_window, period=period, interval=interval, threshold=threshold, require_ma52=require_ma52, require_engulfing=require_engulfing, reference_date=reference_date)
             if ok:
                 results.append(t)
         except Exception as e:
@@ -147,7 +181,7 @@ def scan_stocks(tickers, short_window=10, long_window=20, period="2y", interval=
     return results
 
 
-def scan_stocks_with_cache(tickers, cache_dir='data', short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0, require_ma52=True, require_engulfing=True, relaxed_engulfing=False):
+def scan_stocks_with_cache(tickers, cache_dir='data', short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0, require_ma52=True, require_engulfing=True, relaxed_engulfing=False, reference_date=None):
     """Scan using locally cached per-ticker Parquet files if available.
     If a ticker has no cache file, it will be skipped.
     """
@@ -162,7 +196,7 @@ def scan_stocks_with_cache(tickers, cache_dir='data', short_window=10, long_wind
             if df is None:
                 print(f"{t}: cache not found, skipping")
                 continue
-            ok = check_signal(t, short_window=short_window, long_window=long_window, period=period, interval=interval, threshold=threshold, data_df=df, require_ma52=require_ma52, require_engulfing=require_engulfing, relaxed_engulfing=relaxed_engulfing)
+            ok = check_signal(t, short_window=short_window, long_window=long_window, period=period, interval=interval, threshold=threshold, data_df=df, require_ma52=require_ma52, require_engulfing=require_engulfing, relaxed_engulfing=relaxed_engulfing, reference_date=reference_date)
             if ok:
                 results.append(t)
         except Exception as e:
@@ -170,7 +204,7 @@ def scan_stocks_with_cache(tickers, cache_dir='data', short_window=10, long_wind
     return results
 
 
-def scan_above_ma52_with_cache(tickers, cache_dir='data'):
+def scan_above_ma52_with_cache(tickers, cache_dir='data', reference_date=None):
     """Scan cached parquet files and return tickers whose latest Close >= MA52 (week-based SMA 52)."""
     from data_fetcher import load_ticker_from_cache
     import pandas as pd
@@ -186,11 +220,35 @@ def scan_above_ma52_with_cache(tickers, cache_dir='data'):
                 continue
             df = df.copy()
             df.dropna(subset=['Close'], inplace=True)
-            df.reset_index(drop=True, inplace=True)
-            if len(df) < 52:
-                continue
-            ma52 = df['Close'].rolling(window=52).mean().iloc[-1]
-            last = df['Close'].iloc[-1]
+            # convert index to datetime if possible
+            try:
+                if not isinstance(df.index, pd.DatetimeIndex):
+                    df.index = pd.to_datetime(df.index)
+            except Exception:
+                pass
+
+            if reference_date is not None:
+                try:
+                    ref = pd.to_datetime(reference_date)
+                    candidates = df.index[df.index <= ref]
+                    if len(candidates) == 0:
+                        continue
+                    target_idx = candidates[-1]
+                    pos = df.index.get_loc(target_idx)
+                    if pos < 51:
+                        # not enough history before target to compute MA52
+                        continue
+                    sub = df.iloc[:pos+1].copy()
+                    ma52 = sub['Close'].rolling(window=52).mean().iloc[-1]
+                    last = sub['Close'].iloc[-1]
+                except Exception:
+                    continue
+            else:
+                df.reset_index(drop=True, inplace=True)
+                if len(df) < 52:
+                    continue
+                ma52 = df['Close'].rolling(window=52).mean().iloc[-1]
+                last = df['Close'].iloc[-1]
             if pd.isna(ma52):
                 continue
             if float(last) >= float(ma52):
