@@ -1,6 +1,11 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+    HAS_MATPLOTLIB = True
+except Exception:
+    plt = None
+    HAS_MATPLOTLIB = False
 import requests
 import io
 import datetime
@@ -214,7 +219,24 @@ if 'df_raw' in st.session_state:
                     st.session_state['model'] = model
                     st.success('学習完了')
                     st.write('学習に使用した特徴量:', feature_names)
-                    st.pyplot(plot_feature_importance(model, feature_names))
+                    # matplotlib が無い環境ではプロットできないので代替表示
+                    if HAS_MATPLOTLIB:
+                        try:
+                            st.pyplot(plot_feature_importance(model, feature_names))
+                        except Exception as e:
+                            st.error(f'プロット表示中にエラーが発生しました: {e}')
+                    else:
+                        try:
+                            try:
+                                importances = model.feature_importance(importance_type='gain')
+                            except Exception:
+                                importances = model.booster_.feature_importance(importance_type='gain')
+                            fi = pd.DataFrame({'feature': feature_names, 'importance': importances})
+                            fi = fi.sort_values('importance', ascending=False).head(20).reset_index(drop=True)
+                            st.info('matplotlib がインストールされていないため、上位特徴量を表で表示します。`pip install matplotlib` でチャート表示が可能です。')
+                            st.dataframe(fi)
+                        except Exception as e:
+                            st.error(f'特徴量重要度の表示に失敗しました: {e}')
 
     if 'model' in st.session_state and 'df_te' in st.session_state:
         model = st.session_state['model']
@@ -255,21 +277,111 @@ if 'df_scraped' in st.session_state:
     df_s = st.session_state['df_scraped']
     st.markdown('## 取得済み Netkeiba データの確認')
     st.write(f'行数: {len(df_s)}')
-    # 日付 or race_url で絞り込み
-    if 'race_date' in df_s.columns:
-        dates = sorted(df_s['race_date'].dropna().unique())
-        sel_date = st.selectbox('レース日で絞り込む', ['(全て)'] + dates)
-        if sel_date and sel_date != '(全て)':
-            df_filtered = df_s[df_s['race_date'] == sel_date]
-        else:
+    # レースごとに分割した per-race ファイルがあれば、日付→レース で選べるようにする
+    from pathlib import Path
+    per_race_summary = Path('outputs') / 'predictions_by_race' / 'summary_by_race.csv'
+    if per_race_summary.exists():
+        try:
+            summary = pd.read_csv(per_race_summary)
+            dates = sorted(summary['race_date'].dropna().unique())
+            sel_date = st.selectbox('レース日で絞り込む', ['(全て)'] + list(dates))
+            if sel_date and sel_date != '(全て)':
+                subset = summary[summary['race_date'] == sel_date]
+            else:
+                subset = summary
+
+            # show race selector
+            options = []
+            for _, r in subset.iterrows():
+                # attempt to read a single row from the per-race file to get race title / class
+                race_title = ''
+                race_grade = ''
+                file_rel = r['file']
+                try:
+                    p = Path(file_rel)
+                    if not p.exists():
+                        p = Path.cwd() / file_rel
+                    if p.exists():
+                        tmp = pd.read_parquet(p, columns=[c for c in ['race_class'] if c in pd.read_parquet(p).columns]).head(1)
+                        # race_class available
+                        if 'race_class' in tmp.columns:
+                            race_grade = str(tmp['race_class'].iloc[0])
+                        # try common title columns
+                        pq = pd.read_parquet(p)
+                        for tc in ['race_name', 'race_title', 'title', 'name']:
+                            if tc in pq.columns and pq[tc].notna().any():
+                                race_title = str(pq[tc].dropna().unique()[0])
+                                break
+                except Exception:
+                    race_title = ''
+                # build display: show URL (short) + '_' + title (if exists) + ' ['+grade+']'
+                short_url = r['race_url'] if pd.notna(r['race_url']) else ''
+                display = f"{short_url} _{race_title}"
+                if race_grade:
+                    display = f"{display} [{race_grade}]"
+                options.append((display, r['file']))
+
+            sel_display = st.selectbox('レースファイルを選択', ['(一覧表示)'] + [d for d, _ in options])
+            if sel_display and sel_display != '(一覧表示)':
+                # find file matching display
+                file_rel = None
+                for d, f in options:
+                    if d == sel_display:
+                        file_rel = f
+                        break
+                if file_rel:
+                    p = Path(file_rel)
+                    if not p.exists():
+                        # try relative to project root
+                        p = Path.cwd() / file_rel
+                    try:
+                        df_filtered = pd.read_parquet(p)
+                        st.success(f'読み込みました: {p} （行数: {len(df_filtered)}）')
+                    except Exception as e:
+                        st.error(f'レースファイルの読み込みに失敗しました: {e}')
+                        df_filtered = df_s
+                else:
+                    df_filtered = df_s
+            else:
+                # 一覧表示: filter by date if selected
+                if sel_date and sel_date != '(全て)':
+                    # show combined rows for that date from summary files
+                    rows = []
+                    for _, r in subset.iterrows():
+                        p = Path(r['file'])
+                        if not p.exists():
+                            p = Path.cwd() / r['file']
+                        try:
+                            d = pd.read_parquet(p)
+                            rows.append(d)
+                        except Exception:
+                            continue
+                    if rows:
+                        df_filtered = pd.concat(rows, ignore_index=True)
+                    else:
+                        df_filtered = df_s
+                else:
+                    df_filtered = df_s
+        except Exception as e:
+            st.error('per-race summary の読み込みに失敗しました: ' + str(e))
             df_filtered = df_s
     else:
+        # fallback: original behavior filtering the single loaded parquet by columns
         df_filtered = df_s
+        if 'race_date' in df_s.columns:
+            dates = sorted(df_s['race_date'].dropna().unique())
+            sel_date = st.selectbox('レース日で絞り込む', ['(全て)'] + dates)
+            if sel_date and sel_date != '(全て)':
+                df_filtered = df_s[df_s['race_date'] == sel_date]
+        if 'race_url' in df_filtered.columns:
+            urls = list(df_filtered['race_url'].dropna().unique())
+            sel_url = st.selectbox('レースURLを選択', ['(全て)'] + urls)
+            if sel_url and sel_url != '(全て)':
+                df_filtered = df_filtered[df_filtered['race_url'] == sel_url]
 
+    # remove race_url column from displayed table to reduce clutter
     if 'race_url' in df_filtered.columns:
-        urls = list(df_filtered['race_url'].dropna().unique())
-        sel_url = st.selectbox('レースURLを選択', ['(全て)'] + urls)
-        if sel_url and sel_url != '(全て)':
-            df_filtered = df_filtered[df_filtered['race_url'] == sel_url]
-
-    st.dataframe(df_filtered.reset_index(drop=True).head(500))
+        display_df = df_filtered.drop(columns=['race_url'])
+    else:
+        display_df = df_filtered
+    st.dataframe(display_df.reset_index(drop=True).head(500))

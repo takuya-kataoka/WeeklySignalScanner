@@ -4,4 +4,3 @@ numpy
 pyarrow
 streamlit
 plotly
-requests

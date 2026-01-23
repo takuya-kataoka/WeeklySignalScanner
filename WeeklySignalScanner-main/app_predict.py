@@ -252,7 +252,8 @@ else:
                         achieved = False
 
                     try:
-                        styled = df_row.style.apply(lambda s, flag=achieved: ['background-color: #d4f8e1' if flag else '' for _ in s], axis=1)
+                        # use a subtle translucent highlight so it looks good in dark theme
+                        styled = df_row.style.apply(lambda s, flag=achieved: ["background-color: rgba(255,255,255,0.03)" if flag else '' for _ in s], axis=1)
                         st.dataframe(styled)
                     except Exception:
                         # fallback

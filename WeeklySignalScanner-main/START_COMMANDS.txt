@@ -38,12 +38,6 @@ pip install -r requirements.txt
   --server.headless=true --server.port=8503 --server.address=0.0.0.0
 ```
 
-4) Crypto 週足チャート（CoinGecko を利用）
-```
-/workspaces/WeeklySignalScanner-main/.venv/bin/python -m streamlit run app_streamlit_crypto.py \
-  --server.headless=true --server.port=8504 --server.address=0.0.0.0
-```
-
 4) バックグラウンドで起動しログを残す例
 ```
 nohup /workspaces/WeeklySignalScanner-main/.venv/bin/python -m streamlit run app_streamlit.py \

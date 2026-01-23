@@ -312,15 +312,38 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
     # 包み足判定を緩和するか（チェック時のみ緩和） - スキャンボタン近くに配置
     relax_engulfing = st.checkbox('包み足判定を緩和する（チェック時のみ有効）', value=False)
 
+    # 日付を選択して、その日時点でシグナル検出された銘柄リストを出力する
+    scan_date = st.date_input('スキャン対象日', value=pd.Timestamp.today().date())
+
     if st.button('抽出ファイルを作成（スキャン）'):
         # 実行には時間がかかるため実行中インジケータを表示
-        import scan_all_jp_batch
-        with st.spinner('スキャン中... data/ のキャッシュを使って処理します'):
+        import subprocess, os
+        script = str(base_dir / 'scripts' / 'run_weekly_screener_asof.py')
+        python_bin = os.path.abspath('/workspaces/WeeklySignalScanner-main/.venv/bin/python')
+        tickers_file = str(selected_file)
+        date_arg = scan_date.strftime('%Y-%m-%d')
+        cmd = [python_bin, script, '--date', date_arg, '--tickers', tickers_file]
+        if relax_engulfing:
+            cmd.append('--relaxed')
+
+        env = os.environ.copy()
+        env['PYTHONPATH'] = '.'
+
+        with st.spinner(f'スキャン中... AsOf={date_arg} (結果は outputs/results に出力されます)'):
             try:
-                scan_all_jp_batch.main(relaxed_engulfing=relax_engulfing)
-                st.success('スキャン完了: outputs/results を確認してください')
+                # Run and capture output to display
+                proc = subprocess.run(cmd, cwd=str(base_dir), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if proc.returncode == 0:
+                    st.success('スキャン完了: outputs/results を確認してください')
+                else:
+                    st.error(f'スキャンが非ゼロ終了: code={proc.returncode}')
+                # show command output for debugging
+                if proc.stdout:
+                    st.text_area('stdout', proc.stdout, height=200)
+                if proc.stderr:
+                    st.text_area('stderr', proc.stderr, height=200)
             except Exception as e:
-                st.error(f'スキャン中にエラー: {e}')
+                st.error(f'スキャン中に例外: {e}')
 
     st.write('---')
     st.write('予想ページ起動（外部Streamlitを別ポートで起動）')
@@ -395,6 +418,41 @@ elif price_map:
 
 st.sidebar.metric("検出銘柄数", len(df))
 
+# 予想保存関連の準備: outputs/predictions/predictions_YYYY-MM-DD.csv （app_predict と同仕様）
+preds_dir = base_dir / 'outputs' / 'predictions'
+os.makedirs(str(preds_dir), exist_ok=True)
+
+# load existing predictions (merge all predictions_*.csv like app_predict.py)
+pred_map = {}
+pred_price_map = {}
+pred_note_map = {}
+try:
+    files = sorted([str(p) for p in preds_dir.glob('predictions_*.csv')], reverse=True)
+    all_rows = []
+    for p in files:
+        try:
+            d = pd.read_csv(p)
+            if not d.empty and 'ticker' in d.columns:
+                for _, r in d.iterrows():
+                    tk = str(r.get('ticker'))
+                    # capture numeric pred_price if present
+                    if 'pred_price' in r.index and pd.notna(r.get('pred_price')):
+                        try:
+                            pred_price_map[tk] = float(r.get('pred_price'))
+                            pred_map[tk] = str(r.get('pred_price'))
+                        except Exception:
+                            pred_map[tk] = str(r.get('pred_price'))
+                    # capture note
+                    note = r.get('note', '')
+                    if pd.notna(note) and str(note).strip():
+                        pred_note_map[tk] = str(note)
+                        if tk not in pred_map:
+                            pred_map[tk] = str(note)
+        except Exception:
+            continue
+except Exception:
+    pred_map = {}
+
 # 銘柄選択
 if 'ticker' not in df.columns:
     st.error("ticker列が見つかりません")
@@ -468,6 +526,19 @@ if display_mode == "10銘柄一覧":
                 ma52 = data['Close'].rolling(52).mean().iloc[-1]
 
                 st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}")
+                # 予想チェックボックスと入力（グリッド表示でも単一表示と同様の動作に）
+                chk_key = f"pred_check_{ticker}"
+                txt_key = f"pred_text_{ticker}"
+                checked = st.checkbox('予想を書く', key=chk_key, value=(ticker in pred_map))
+                if checked:
+                    # numeric price input (prefer existing numeric pred)
+                    price_key = f"pred_price_{ticker}"
+                    default_price = pred_price_map.get(ticker) if 'pred_price_map' in globals() else None
+                    if default_price is None:
+                        default_price = 0.0
+                    st.number_input('予想価格 (¥)', min_value=0.0, value=float(default_price), step=1.0, key=price_key)
+                    default_pred = pred_note_map.get(ticker, pred_map.get(ticker, ''))
+                    st.text_area('予想 (自由記述)', value=default_pred, key=txt_key, height=160)
                 
                 # チャート作成（小さめサイズ）
                 fig = make_subplots(
@@ -572,6 +643,99 @@ else:
         with col5:
             ma_diff_pct = ((latest_close - ma52) / ma52 * 100)
             st.metric("MA52比", f"{ma_diff_pct:+.2f}%")
+
+        # 予想チェックボックスと入力（単一銘柄は詳細表示）
+        chk_key = f"pred_check_{ticker}"
+        txt_key = f"pred_text_{ticker}"
+        checked = st.checkbox('この銘柄に予想を書く', key=chk_key, value=(ticker in pred_map))
+        if checked:
+            price_key = f"pred_price_{ticker}"
+            default_price = pred_price_map.get(ticker) if 'pred_price_map' in globals() else None
+            if default_price is None:
+                default_price = 0.0
+            st.number_input('予想価格 (¥)', min_value=0.0, value=float(default_price), step=1.0, key=price_key)
+            default_pred = pred_note_map.get(ticker, pred_map.get(ticker, ''))
+            st.text_area('予想 (自由記述)', value=default_pred, key=txt_key, height=160)
+
+# 保存ボタン（サイドバー）: セッションの予想を CSV に出力
+if st.sidebar.button('予想を保存'):
+    # collect predictions from session_state and save in app_predict format
+    from datetime import datetime
+    import csv
+    import re
+
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    out_path = preds_dir / f'predictions_{today_str}.csv'
+    index_path = preds_dir / 'predicted_tickers_index.csv'
+
+    rows = []
+    for t in ticker_list:
+        chk = st.session_state.get(f"pred_check_{t}", False)
+        if chk:
+            pred_text = st.session_state.get(f"pred_text_{t}", '') or ''
+            # prefer explicit numeric input if provided
+            explicit_price = st.session_state.get(f"pred_price_{t}", None)
+            pred_price = ''
+            if explicit_price is not None and explicit_price != 0:
+                try:
+                    pred_price = float(explicit_price)
+                except Exception:
+                    pred_price = ''
+            else:
+                # try to extract numeric price from text (first numeric token)
+                m = re.search(r"[0-9,]+(?:\.[0-9]+)?", str(pred_text))
+                if m:
+                    num = m.group(0).replace(',', '')
+                    try:
+                        pred_price = float(num)
+                    except Exception:
+                        pred_price = ''
+            rows.append({
+                'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'ticker': t,
+                'target_date': today_str,
+                'pred_price': pred_price,
+                'note': pred_text
+            })
+
+    try:
+        if not rows:
+            st.sidebar.info('保存する予想がありません（チェックを入れてから保存してください）')
+        else:
+            # append rows to out_path
+            write_header = not out_path.exists()
+            with open(out_path, 'a', newline='', encoding='utf-8') as f:
+                fieldnames = ['created_at', 'ticker', 'target_date', 'pred_price', 'note']
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                if write_header:
+                    writer.writeheader()
+                for r in rows:
+                    writer.writerow(r)
+
+            # update index file (avoid duplicate date+ticker)
+            existing = set()
+            if index_path.exists():
+                try:
+                    with open(index_path, 'r', encoding='utf-8') as idxf:
+                        reader = csv.DictReader(idxf)
+                        for rr in reader:
+                            existing.add((rr.get('date'), rr.get('ticker')))
+                except Exception:
+                    existing = set()
+
+            write_idx_header = not index_path.exists()
+            with open(index_path, 'a', newline='', encoding='utf-8') as idf:
+                idx_writer = csv.DictWriter(idf, fieldnames=['date', 'ticker'])
+                if write_idx_header:
+                    idx_writer.writeheader()
+                for r in rows:
+                    key = (today_str, r['ticker'])
+                    if key not in existing:
+                        idx_writer.writerow({'date': today_str, 'ticker': r['ticker']})
+
+            st.sidebar.success(f'予想を保存しました -> {out_path}')
+    except Exception as e:
+        st.sidebar.error(f'予想の保存に失敗しました: {e}')
         
         # チャート作成
         fig = make_subplots(
