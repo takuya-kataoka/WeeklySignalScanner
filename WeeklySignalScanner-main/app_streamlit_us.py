@@ -253,20 +253,7 @@ else:
         
         st.plotly_chart(fig, use_container_width=True, key=f"chart_{ticker}")
         
-        # データテーブル（直近20週）
-        st.subheader("📊 直近20週のデータ")
-        recent_data = data.tail(20)[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
-        recent_data['MA52'] = data['Close'].rolling(52).mean().tail(20)
-        recent_data = recent_data.iloc[::-1]  # 新しい順
-        st.dataframe(recent_data.style.format({
-            'Open': '${:,.2f}',
-            'High': '${:,.2f}',
-            'Low': '${:,.2f}',
-            'Close': '${:,.2f}',
-            'Volume': '{:,.0f}',
-            'MA52': '${:,.2f}'
-        }), use_container_width=True)
+        # (直近20週のデータ表示は削除しました)
 
-# 銘柄リスト表示
-with st.expander("🔍 全検出銘柄リスト"):
-    st.dataframe(df, use_container_width=True)
+    # 銘柄リスト表示は不要のため非表示
+    # (全検出銘柄リストの表示を削除しました)
