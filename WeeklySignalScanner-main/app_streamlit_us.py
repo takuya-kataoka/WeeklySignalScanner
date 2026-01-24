@@ -99,16 +99,16 @@ if display_mode == "10銘柄一覧":
                 # ローソク足
                 fig.add_trace(
                     go.Candlestick(
-                        x=data.index,
-                        open=data['Open'],
-                        high=data['High'],
-                        low=data['Low'],
-                        close=data['Close'],
-                        name='価格',
-                        increasing_line_color='green',
-                        decreasing_line_color='red',
-                        showlegend=False
-                    ),
+                            x=data.index,
+                            open=data['Open'],
+                            high=data['High'],
+                            low=data['Low'],
+                            close=data['Close'],
+                            name='価格',
+                            increasing=dict(line=dict(color='green', width=2.5), fillcolor='green', opacity=0.9),
+                            decreasing=dict(line=dict(color='red', width=2.5), fillcolor='red', opacity=0.9),
+                            showlegend=False
+                        ),
                     row=1, col=1
                 )
                 
@@ -199,15 +199,15 @@ else:
         
         # ローソク足
         fig.add_trace(
-            go.Candlestick(
+                go.Candlestick(
                 x=data.index,
                 open=data['Open'],
                 high=data['High'],
                 low=data['Low'],
                 close=data['Close'],
                 name='価格',
-                increasing_line_color='green',
-                decreasing_line_color='red'
+                increasing=dict(line=dict(color='green', width=2.5), fillcolor='green', opacity=0.9),
+                decreasing=dict(line=dict(color='red', width=2.5), fillcolor='red', opacity=0.9)
             ),
             row=1, col=1
         )
