@@ -105,8 +105,8 @@ if display_mode == "10銘柄一覧":
                             low=data['Low'],
                             close=data['Close'],
                             name='価格',
-                            increasing=dict(line=dict(color='green', width=2.5), fillcolor='green', opacity=0.9),
-                            decreasing=dict(line=dict(color='red', width=2.5), fillcolor='red', opacity=0.9),
+                            increasing=dict(line=dict(color='white', width=2.5), fillcolor='green', opacity=0.9),
+                            decreasing=dict(line=dict(color='white', width=2.5), fillcolor='red', opacity=0.9),
                             showlegend=False
                         ),
                     row=1, col=1
@@ -206,8 +206,8 @@ else:
                 low=data['Low'],
                 close=data['Close'],
                 name='価格',
-                increasing=dict(line=dict(color='green', width=2.5), fillcolor='green', opacity=0.9),
-                decreasing=dict(line=dict(color='red', width=2.5), fillcolor='red', opacity=0.9)
+                increasing=dict(line=dict(color='white', width=2.5), fillcolor='green', opacity=0.9),
+                decreasing=dict(line=dict(color='white', width=2.5), fillcolor='red', opacity=0.9)
             ),
             row=1, col=1
         )
