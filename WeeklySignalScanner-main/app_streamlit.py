@@ -293,6 +293,87 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
             except Exception as e:
                 st.error(f'スキャン中にエラー: {e}')
 
+    # ファイル削除 UI
+    with st.expander('ファイル管理: outputs/results の削除', expanded=False):
+        try:
+            repo_root = base_dir.parent
+            files = sorted(results_dir.glob('*.csv'), key=lambda p: p.stat().st_mtime, reverse=True) if results_dir.exists() else []
+            file_names = [p.name for p in files]
+            to_delete = st.multiselect('削除するファイルを選択', file_names)
+            if to_delete:
+                if st.button('選択ファイルを削除'):
+                    import subprocess, datetime
+                    st.sidebar.info('選択ファイルを削除します...')
+                    removed = []
+                    for name in to_delete:
+                        p = results_dir / name
+                        relp = os.path.relpath(str(p), start=str(repo_root))
+                        try:
+                            # Try git rm -f to stage deletion for tracked files
+                            rm_proc = subprocess.run(['git', '-C', str(repo_root), 'rm', '-f', relp], capture_output=True, text=True)
+                            st.sidebar.info(f'git rm {name} -> returncode={rm_proc.returncode} stderr:{rm_proc.stderr}')
+                            if rm_proc.returncode != 0:
+                                # fallback: remove file and stage
+                                if p.exists():
+                                    p.unlink()
+                                add_proc = subprocess.run(['git', '-C', str(repo_root), 'add', '-A'], capture_output=True, text=True)
+                                st.sidebar.info(f'git add -A -> returncode={add_proc.returncode} stderr:{add_proc.stderr}')
+                            removed.append(name)
+                        except Exception as e:
+                            st.sidebar.error(f'ファイル削除中に例外: {e}')
+
+                    if removed:
+                        # bump VERSION and stage it
+                        try:
+                            bump_script = repo_root / 'scripts' / 'bump_version.py'
+                            if bump_script.exists():
+                                subprocess.run(['python3', str(bump_script)], check=False)
+                                subprocess.run(['git', '-C', str(repo_root), 'add', 'VERSION'], check=False)
+                        except Exception:
+                            pass
+
+                        # Commit
+                        version_str = ''
+                        try:
+                            vpath = repo_root / 'VERSION'
+                            if vpath.exists():
+                                version_str = vpath.read_text(encoding='utf-8').strip()
+                        except Exception:
+                            version_str = ''
+
+                        commit_msg = f"chore(clean): remove results {','.join(removed)}{' ver'+version_str if version_str else ''} {datetime.datetime.utcnow().isoformat()}"
+                        commit_proc = subprocess.run(['git', '-C', str(repo_root), 'commit', '-m', commit_msg], capture_output=True, text=True)
+                        st.sidebar.info(f'git commit returncode={commit_proc.returncode}\nstdout:{commit_proc.stdout}\nstderr:{commit_proc.stderr}')
+                        # Push (use token if available)
+                        try:
+                            token = os.environ.get('GITHUB_TOKEN')
+                            try:
+                                if not token:
+                                    token = st.secrets.get('GITHUB_TOKEN') if hasattr(st, 'secrets') and 'GITHUB_TOKEN' in st.secrets else None
+                            except Exception:
+                                pass
+
+                            if token:
+                                rem = subprocess.run(['git', '-C', str(repo_root), 'remote', 'get-url', 'origin'], capture_output=True, text=True)
+                                origin_url = rem.stdout.strip()
+                                if origin_url.startswith('https://'):
+                                    auth_url = origin_url.replace('https://', f'https://{token}@')
+                                else:
+                                    auth_url = origin_url
+                                push_proc = subprocess.run(['git', '-C', str(repo_root), 'push', auth_url, 'main'], capture_output=True, text=True, timeout=120)
+                            else:
+                                push_proc = subprocess.run(['git', '-C', str(repo_root), 'push', 'origin', 'main'], capture_output=True, text=True, timeout=120)
+
+                            st.sidebar.info(f'git push returncode={push_proc.returncode}\nstdout:{push_proc.stdout}\nstderr:{push_proc.stderr}')
+                            if push_proc.returncode == 0:
+                                st.sidebar.success('選択ファイルの削除をコミット＆プッシュしました')
+                            else:
+                                st.sidebar.error('git push に失敗しました。認証情報を確認してください。')
+                        except Exception as e:
+                            st.sidebar.error(f'git push 実行中に例外: {e}')
+        except Exception:
+            st.error('ファイル一覧の取得に失敗しました')
+
     st.write('---')
     st.write('予想ページ起動（外部Streamlitを別ポートで起動）')
     app_options = {
