@@ -50,7 +50,6 @@ else:
 # 結果ファイルを選択（任意の CSV を選べるように変更）
 results_dir = base_dir / 'outputs' / 'results'
 # 最新の更新日時が上に来るように modification time (mtime) でソート
-# テスト2
 all_files = sorted(results_dir.glob('*.csv'), key=lambda p: p.stat().st_mtime, reverse=True) if results_dir.exists() else []
 
 if not all_files:
@@ -328,6 +327,7 @@ if display_mode == "10銘柄一覧":
                 if latest_close is None:
                     latest_close = data['Close'].iloc[-1]
                 ma52 = data['Close'].rolling(52).mean().iloc[-1]
+
 
                 st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}")
                 
