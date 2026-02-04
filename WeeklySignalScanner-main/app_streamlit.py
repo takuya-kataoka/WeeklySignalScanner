@@ -11,7 +11,18 @@ import re
 
 st.set_page_config(page_title="週足スクリーナー", layout="wide")
 
-st.title("📈 週足スクリーナー - MA52 & 陽線包み足+バージョン")
+# バージョン表示: ルートの VERSION ファイルを参照して動的に表示する
+version = "1.00"
+try:
+    # base_dir はこのファイルのディレクトリ（WeeklySignalScanner-main）
+    repo_root = base_dir.parent
+    version_path = repo_root / 'VERSION'
+    if version_path.exists():
+        version = version_path.read_text(encoding='utf-8').strip()
+except Exception:
+    pass
+
+st.title(f"📈 週足スクリーナー - MA52 & 陽線包み足 ver{version}")
 
 # ベースディレクトリを明示（スクリプトの配置ディレクトリ基準にする）
 base_dir = Path(__file__).resolve().parent
