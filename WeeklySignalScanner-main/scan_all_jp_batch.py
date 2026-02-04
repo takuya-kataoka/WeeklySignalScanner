@@ -60,7 +60,7 @@ def scan_range(start, end, output_file, base_dir: Path):
     return len(results)
 
 
-def main(relaxed_engulfing=False, start_date=None, end_date=None):
+def main(relaxed_engulfing=False, as_of_date=None):
     print("=" * 70)
     print("日本株全銘柄スキャン（1300-9999）")
     print("条件: 週足MA52以上 & 陽線包み足")
@@ -89,8 +89,8 @@ def main(relaxed_engulfing=False, start_date=None, end_date=None):
 
     print(f"結果保存先: {output_file}")
     print()
-    if start_date or end_date:
-        print(f"期間指定: {start_date} ～ {end_date}")
+    if as_of_date:
+        print(f"抽出対象日: {as_of_date}")
     print(f"バッチ処理開始（{config.DATA_DIR} 内の銘柄のみ処理）")
     print("=" * 70)
     print()
@@ -131,6 +131,7 @@ def main(relaxed_engulfing=False, start_date=None, end_date=None):
             print(f"[{idx+1}-{min(idx+batch_size, total)}] ({len(batch)}銘柄)", end=' ')
             try:
                 # use cache-aware scanner to avoid re-downloading
+                # pass as_of_date as end_date to the scanner (start_date left None)
                 found_list = scan_stocks_with_cache(
                     batch,
                     cache_dir=data_dir,
@@ -142,8 +143,8 @@ def main(relaxed_engulfing=False, start_date=None, end_date=None):
                     require_ma52=True,
                     require_engulfing=True,
                     relaxed_engulfing=relaxed_engulfing,
-                    start_date=start_date,
-                    end_date=end_date,
+                    start_date=None,
+                    end_date=as_of_date,
                 )
                 if found_list:
                     # collect prices and append to results list (don't write per-batch)
