@@ -23,7 +23,7 @@ try:
 except Exception:
     pass
 
-st.title(f"📈 週足スクリーナー - MA52 & 陽線包み足 ver1.01")
+st.title(f"📈 週足スクリーナー - MA52 & 陽線包み足 ver1.02")
 
 # ベースディレクトリを明示（スクリプトの配置ディレクトリ基準にする）
 base_dir = Path(__file__).resolve().parent
@@ -196,12 +196,26 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
     # 包み足判定を緩和するか（チェック時のみ緩和） - スキャンボタン近くに配置
     relax_engulfing = st.checkbox('包み足判定を緩和する（チェック時のみ有効）', value=False)
 
+    # 期間指定オプション: デフォルトは無効（既存の最新版利用）
+    use_date_range = st.checkbox('期間を指定して抽出する', value=False)
+    scan_start_date = None
+    scan_end_date = None
+    if use_date_range:
+        today = datetime.date.today()
+        default_start = today - datetime.timedelta(days=365)
+        scan_start_date = st.date_input('抽出開始日', value=default_start)
+        scan_end_date = st.date_input('抽出終了日', value=today)
+
     if st.button('抽出ファイルを作成（スキャン）'):
         # 実行には時間がかかるため実行中インジケータを表示
         import scan_all_jp_batch
         with st.spinner('スキャン中... data/ のキャッシュを使って処理します'):
             try:
-                scan_all_jp_batch.main(relaxed_engulfing=relax_engulfing)
+                # pass date range when user enabled it
+                if use_date_range and scan_start_date and scan_end_date:
+                    scan_all_jp_batch.main(relaxed_engulfing=relax_engulfing, start_date=str(scan_start_date), end_date=str(scan_end_date))
+                else:
+                    scan_all_jp_batch.main(relaxed_engulfing=relax_engulfing)
                 st.success('スキャン完了: outputs/results を確認してください')
                 # Streamlit Cloud 上でスキャン結果をリポジトリにコミットしてプッシュする処理
                 try:
