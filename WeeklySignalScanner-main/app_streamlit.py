@@ -217,6 +217,15 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                     # スキャン結果ディレクトリをステージ（CSV 等すべて）
                     add_proc = subprocess.run(['git', '-C', str(repo_root), 'add', str(results_dir)], capture_output=True, text=True)
 
+                    # commit 前に VERSION を自動バンプしてステージする
+                    try:
+                        bump_script = repo_root / 'scripts' / 'bump_version.py'
+                        if bump_script.exists():
+                            subprocess.run(['python3', str(bump_script)], check=False)
+                            subprocess.run(['git', '-C', str(repo_root), 'add', 'VERSION'], check=False)
+                    except Exception:
+                        pass
+
                     # バージョン情報取得（あれば）
                     version_str = ''
                     try:
