@@ -156,14 +156,22 @@ def main(relaxed_engulfing=False, end_date=None):
                         price = None
                         df = load_ticker_from_cache(ticker, cache_dir=data_dir)
                         try:
-                            if relaxed_engulfing:
-                                print("  (包み足判定: 緩和モード ON)")
-                            print("=" * 70)
-                            print()
-                            if end_date:
-                                print(f"抽出対象日 (as-of): {end_date}")
+                            # prefer cached close price; if end_date specified, pick last close <= end_date
+                            import pandas as _pd
+                            if df is not None and 'Close' in df.columns and not df['Close'].dropna().empty:
+                                # ensure DatetimeIndex
+                                if not isinstance(df.index, _pd.DatetimeIndex):
+                                    df.index = _pd.to_datetime(df.index)
+                                if end_date:
+                                    end_ts = _pd.to_datetime(end_date)
+                                    closes = df.loc[df.index <= end_ts]['Close'].dropna()
+                                    if not closes.empty:
+                                        price = float(closes.iloc[-1])
+                                else:
+                                    price = float(df['Close'].dropna().iloc[-1])
                             else:
-                                print("抽出対象日: 最新")
+                                # fallback to recent yfinance price
+                                single = yf.Ticker(ticker).history(period='5d', interval='1d')
                                 if single is not None and 'Close' in single.columns and not single['Close'].dropna().empty:
                                     price = float(single['Close'].dropna().iloc[-1])
                         except Exception:
