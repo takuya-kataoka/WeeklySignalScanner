@@ -196,23 +196,15 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
     # 包み足判定を緩和するか（チェック時のみ緩和） - スキャンボタン近くに配置
     relax_engulfing = st.checkbox('包み足判定を緩和する（チェック時のみ有効）', value=False)
 
-    # 抽出対象日指定オプション: 指定日での判定を行う（デフォルトは当日）
-    use_as_of_date = st.checkbox('抽出対象日を指定する（指定が無ければ最新版）', value=False)
-    as_of_date = None
-    if use_as_of_date:
-        today = datetime.date.today()
-        as_of_date = st.date_input('抽出対象日', value=today)
+    # （抽出対象日は指定しない。常に最新のキャッシュを用いる）
 
     if st.button('抽出ファイルを作成（スキャン）'):
         # 実行には時間がかかるため実行中インジケータを表示
         import scan_all_jp_batch
         with st.spinner('スキャン中... data/ のキャッシュを使って処理します'):
             try:
-                # pass as-of date when user enabled it
-                if use_as_of_date and as_of_date:
-                    scan_all_jp_batch.main(relaxed_engulfing=relax_engulfing, as_of_date=str(as_of_date))
-                else:
-                    scan_all_jp_batch.main(relaxed_engulfing=relax_engulfing)
+                # 既定動作: 最新のキャッシュでスキャンを行う
+                scan_all_jp_batch.main(relaxed_engulfing=relax_engulfing)
                 st.success('スキャン完了: outputs/results を確認してください')
                 # Streamlit Cloud 上でスキャン結果をリポジトリにコミットしてプッシュする処理
                 try:
