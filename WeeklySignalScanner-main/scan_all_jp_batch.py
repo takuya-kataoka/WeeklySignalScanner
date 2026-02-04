@@ -60,7 +60,7 @@ def scan_range(start, end, output_file, base_dir: Path):
     return len(results)
 
 
-def main(relaxed_engulfing=False):
+def main(relaxed_engulfing=False, end_date=None):
     print("=" * 70)
     print("日本株全銘柄スキャン（1300-9999）")
     print("条件: 週足MA52以上 & 陽線包み足")
@@ -140,6 +140,7 @@ def main(relaxed_engulfing=False):
                     require_ma52=True,
                     require_engulfing=True,
                     relaxed_engulfing=relaxed_engulfing,
+                    end_date=end_date,
                 )
                 if found_list:
                     # collect prices and append to results list (don't write per-batch)
@@ -147,10 +148,14 @@ def main(relaxed_engulfing=False):
                         price = None
                         df = load_ticker_from_cache(ticker, cache_dir=data_dir)
                         try:
-                            if df is not None and 'Close' in df.columns and not df['Close'].dropna().empty:
-                                price = float(df['Close'].dropna().iloc[-1])
+                            if relaxed_engulfing:
+                                print("  (包み足判定: 緩和モード ON)")
+                            print("=" * 70)
+                            print()
+                            if end_date:
+                                print(f"抽出対象日 (as-of): {end_date}")
                             else:
-                                single = yf.Ticker(ticker).history(period='5d', interval='1d')
+                                print("抽出対象日: 最新")
                                 if single is not None and 'Close' in single.columns and not single['Close'].dropna().empty:
                                     price = float(single['Close'].dropna().iloc[-1])
                         except Exception:
@@ -171,8 +176,7 @@ def main(relaxed_engulfing=False):
     # After processing all batches, write sorted results by price (ascending)
     # price None values will be placed at the end
     def _price_key(item):
-        p = item[1]
-        return float('inf') if p is None else p
+                            print(f"バッチ処理開始（{config.DATA_DIR} 内の銘柄のみ処理）")
 
     found_results_sorted = sorted(found_results, key=_price_key)
     # overwrite output file with header + sorted rows

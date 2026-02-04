@@ -23,7 +23,7 @@ try:
 except Exception:
     pass
 
-st.title(f"📈 週足スクリーナー - MA52 & 陽線包み足 ver1.02")
+st.title(f"📈 週足スクリーナー - MA52 & 陽線包み足 ver1.03")
 
 # ベースディレクトリを明示（スクリプトの配置ディレクトリ基準にする）
 base_dir = Path(__file__).resolve().parent
@@ -196,15 +196,23 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
     # 包み足判定を緩和するか（チェック時のみ緩和） - スキャンボタン近くに配置
     relax_engulfing = st.checkbox('包み足判定を緩和する（チェック時のみ有効）', value=False)
 
-    # （抽出対象日は指定しない。常に最新のキャッシュを用いる）
+    # 抽出モード選択: 最新 / 単一日指定（as-of）
+    extract_mode = st.selectbox('抽出モード', ['最新版（最新キャッシュ）', '単一日指定'], index=0)
+    as_of_date = None
+    if extract_mode == '単一日指定':
+        today = datetime.date.today()
+        as_of_date = st.date_input('抽出対象日 (as-of)', value=today)
 
     if st.button('抽出ファイルを作成（スキャン）'):
         # 実行には時間がかかるため実行中インジケータを表示
         import scan_all_jp_batch
         with st.spinner('スキャン中... data/ のキャッシュを使って処理します'):
             try:
-                # 既定動作: 最新のキャッシュでスキャンを行う
-                scan_all_jp_batch.main(relaxed_engulfing=relax_engulfing)
+                # call scan_all_jp_batch with as-of date if provided
+                if extract_mode == '単一日指定' and as_of_date:
+                    scan_all_jp_batch.main(relaxed_engulfing=relax_engulfing, end_date=str(as_of_date))
+                else:
+                    scan_all_jp_batch.main(relaxed_engulfing=relax_engulfing)
                 st.success('スキャン完了: outputs/results を確認してください')
                 # Streamlit Cloud 上でスキャン結果をリポジトリにコミットしてプッシュする処理
                 try:

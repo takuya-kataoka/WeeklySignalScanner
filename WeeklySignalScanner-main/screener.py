@@ -147,9 +147,12 @@ def scan_stocks(tickers, short_window=10, long_window=20, period="2y", interval=
     return results
 
 
-def scan_stocks_with_cache(tickers, cache_dir='data', short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0, require_ma52=True, require_engulfing=True, relaxed_engulfing=False):
+def scan_stocks_with_cache(tickers, cache_dir='data', short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0, require_ma52=True, require_engulfing=True, relaxed_engulfing=False, start_date=None, end_date=None):
     """Scan using locally cached per-ticker Parquet files if available.
     If a ticker has no cache file, it will be skipped.
+    Optional `start_date` and `end_date` may be provided (strings or date-like);
+    when provided the cached DataFrame will be sliced to the specified range
+    before being passed to `check_signal`.
     """
     from data_fetcher import load_ticker_from_cache
     results = []
@@ -162,6 +165,27 @@ def scan_stocks_with_cache(tickers, cache_dir='data', short_window=10, long_wind
             if df is None:
                 print(f"{t}: cache not found, skipping")
                 continue
+            # If date range specified, try slicing the cached DataFrame
+            try:
+                import pandas as _pd
+                if start_date or end_date:
+                    # ensure DatetimeIndex
+                    if not isinstance(df.index, _pd.DatetimeIndex):
+                        df.index = _pd.to_datetime(df.index)
+                    start_ts = _pd.to_datetime(start_date) if start_date else None
+                    end_ts = _pd.to_datetime(end_date) if end_date else None
+                    mask = _pd.Series(True, index=df.index)
+                    if start_ts is not None:
+                        mask &= (df.index >= start_ts)
+                    if end_ts is not None:
+                        mask &= (df.index <= end_ts)
+                    df = df.loc[mask]
+                    if df is None or df.empty or len(df) < 2:
+                        print(f"{t}: cache has insufficient data after slicing for range {start_date} - {end_date}, skipping")
+                        continue
+            except Exception:
+                # if slicing fails, continue with un-sliced df
+                pass
             ok = check_signal(t, short_window=short_window, long_window=long_window, period=period, interval=interval, threshold=threshold, data_df=df, require_ma52=require_ma52, require_engulfing=require_engulfing, relaxed_engulfing=relaxed_engulfing)
             if ok:
                 results.append(t)
