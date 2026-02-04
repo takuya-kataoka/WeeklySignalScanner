@@ -184,7 +184,15 @@ def main(relaxed_engulfing=False, end_date=None):
     # After processing all batches, write sorted results by price (ascending)
     # price None values will be placed at the end
     def _price_key(item):
-                            print(f"バッチ処理開始（{config.DATA_DIR} 内の銘柄のみ処理）")
+        # item: (ticker, price)
+        # price may be None; place None values at the end by returning a tuple
+        ticker, price = item
+        if price is None:
+            return (1, float('inf'))
+        try:
+            return (0, float(price))
+        except Exception:
+            return (1, float('inf'))
 
     found_results_sorted = sorted(found_results, key=_price_key)
     # overwrite output file with header + sorted rows
