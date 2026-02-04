@@ -216,12 +216,19 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
 
                     # スキャン結果ディレクトリをステージ（CSV 等すべて）
                     try:
-                        rel_results = os.path.relpath(str(results_dir), start=str(repo_root))
-                    except Exception:
-                        rel_results = str(results_dir)
-                    add_proc = subprocess.run(['git', '-C', str(repo_root), 'add', rel_results], capture_output=True, text=True)
-                    # show add output for debugging
-                    st.sidebar.info(f'git add returncode={add_proc.returncode}\nstdout:{add_proc.stdout}\nstderr:{add_proc.stderr}')
+                        # add each file under results with -f to override .gitignore if needed
+                        added_any = False
+                        for p in sorted(results_dir.rglob('*')):
+                            if p.is_file():
+                                relp = os.path.relpath(str(p), start=str(repo_root))
+                                add_proc = subprocess.run(['git', '-C', str(repo_root), 'add', '-f', relp], capture_output=True, text=True)
+                                st.sidebar.info(f'git add {relp} -> returncode={add_proc.returncode} stderr:{add_proc.stderr}')
+                                if add_proc.returncode == 0:
+                                    added_any = True
+                        if not added_any:
+                            st.sidebar.info('outputs/results 内にステージ可能なファイルが見つかりませんでした（.gitignore を確認してください）')
+                    except Exception as e:
+                        st.sidebar.error(f'git add 実行中に例外: {e}')
 
                     # commit 前に VERSION を自動バンプしてステージする
                     try:
@@ -253,7 +260,27 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                     else:
                         # プッシュ
                         try:
-                            push_proc = subprocess.run(['git', '-C', str(repo_root), 'push', 'origin', 'main'], capture_output=True, text=True, timeout=120)
+                            # Try to use token from environment or Streamlit secrets if available
+                            token = os.environ.get('GITHUB_TOKEN')
+                            try:
+                                # Streamlit secrets (if deployed with secrets)
+                                if not token:
+                                    token = st.secrets.get('GITHUB_TOKEN') if hasattr(st, 'secrets') and 'GITHUB_TOKEN' in st.secrets else None
+                            except Exception:
+                                pass
+
+                            if token:
+                                # get origin URL and construct authenticated push URL without logging token
+                                rem = subprocess.run(['git', '-C', str(repo_root), 'remote', 'get-url', 'origin'], capture_output=True, text=True)
+                                origin_url = rem.stdout.strip()
+                                if origin_url.startswith('https://'):
+                                    auth_url = origin_url.replace('https://', f'https://{token}@')
+                                else:
+                                    auth_url = origin_url
+                                push_proc = subprocess.run(['git', '-C', str(repo_root), 'push', auth_url, 'main'], capture_output=True, text=True, timeout=120)
+                            else:
+                                push_proc = subprocess.run(['git', '-C', str(repo_root), 'push', 'origin', 'main'], capture_output=True, text=True, timeout=120)
+
                             st.sidebar.info(f'git push returncode={push_proc.returncode}\nstdout:{push_proc.stdout}\nstderr:{push_proc.stderr}')
                             if push_proc.returncode == 0:
                                 st.sidebar.success('スキャン結果を origin/main にコミット＆プッシュしました')
