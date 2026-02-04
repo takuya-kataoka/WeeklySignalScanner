@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Pre-commit hook: bump VERSION by 0.01 and stage it so it is included in the commit.
+# This hook expects `scripts/bump_version.py` to exist in the repo root.
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PY_BUMP="$REPO_ROOT/scripts/bump_version.py"
+VERSION_FILE="$REPO_ROOT/VERSION"
+
+if [ -x "$(command -v python3)" ] && [ -f "$PY_BUMP" ]; then
+  # run bump script (it writes new VERSION)
+  python3 "$PY_BUMP"
+  # stage updated VERSION so it becomes part of the current commit
+  git add -- "$VERSION_FILE" || true
+fi
+
+exit 0
