@@ -7,6 +7,7 @@ import os
 import yfinance as yf
 from pathlib import Path
 import math
+import datetime
 import re
 
 st.set_page_config(page_title="週足スクリーナー", layout="wide")
@@ -280,6 +281,30 @@ def read_maybe_timestampped_csv(path):
 
 df = read_maybe_timestampped_csv(selected_file)
 
+# 表示: 結果ファイルと data ディレクトリの最終更新時刻をサイドバーに表示
+try:
+    sel_mtime = datetime.datetime.fromtimestamp(Path(str(selected_file)).stat().st_mtime)
+    sel_mtime_str = sel_mtime.strftime("%Y-%m-%d %H:%M:%S")
+except Exception:
+    sel_mtime_str = "-"
+
+data_dir_path = base_dir.parent / 'data'
+data_latest_str = "-"
+if data_dir_path.exists():
+    max_m = None
+    for p in data_dir_path.rglob('*'):
+        if p.is_file():
+            try:
+                m = p.stat().st_mtime
+            except Exception:
+                continue
+            if max_m is None or m > max_m:
+                max_m = m
+    if max_m:
+        data_latest_str = datetime.datetime.fromtimestamp(max_m).strftime("%Y-%m-%d %H:%M:%S")
+
+st.sidebar.markdown(f"**データ情報**\n- 結果ファイル更新: {sel_mtime_str}\n- data 最終更新: {data_latest_str}")
+
 # 追加: outputs/results の中から最新で価格列（'current_price' または 'price'）を持つCSVを自動検出して読み込み
 price_map = {}
 price_file = None
@@ -482,6 +507,23 @@ else:
         with col5:
             ma_diff_pct = ((latest_close - ma52) / ma52 * 100)
             st.metric("MA52比", f"{ma_diff_pct:+.2f}%")
+        # キャッシュされたデータの最終日または更新時刻を表示
+        try:
+            cache_path = base_dir.parent / 'data' / f"{ticker}.parquet"
+            cache_info = None
+            if cache_path.exists():
+                try:
+                    cdf = pd.read_parquet(cache_path)
+                    # インデックスに日付がある場合は最終日を表示
+                    if hasattr(cdf.index, 'max'):
+                        idxmax = cdf.index.max()
+                        cache_info = f"キャッシュ最終日: {pd.to_datetime(idxmax).date()}"
+                except Exception:
+                    cache_info = f"キャッシュ最終更新: {datetime.datetime.fromtimestamp(cache_path.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')}"
+            if cache_info:
+                st.caption(cache_info)
+        except Exception:
+            pass
         
         # チャート作成
         fig = make_subplots(
