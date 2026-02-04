@@ -202,6 +202,44 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
             try:
                 scan_all_jp_batch.main(relaxed_engulfing=relax_engulfing)
                 st.success('スキャン完了: outputs/results を確認してください')
+                # Streamlit Cloud 上でスキャン結果をリポジトリにコミットしてプッシュする処理
+                try:
+                    import subprocess, datetime
+
+                    st.sidebar.info('スキャン完了 — Git にコミットを試行します')
+
+                    repo_root = base_dir.parent
+                    # git のユーザー情報を設定（必要に応じて環境側で上書きしてください）
+                    subprocess.run(['git', '-C', str(repo_root), 'config', 'user.email', 'streamlit@example.com'], check=False)
+                    subprocess.run(['git', '-C', str(repo_root), 'config', 'user.name', 'StreamlitAutoCommit'], check=False)
+
+                    # スキャン結果ディレクトリをステージ（CSV 等すべて）
+                    add_proc = subprocess.run(['git', '-C', str(repo_root), 'add', str(results_dir)], capture_output=True, text=True)
+
+                    # バージョン情報取得（あれば）
+                    version_str = ''
+                    try:
+                        vpath = repo_root / 'VERSION'
+                        if vpath.exists():
+                            version_str = vpath.read_text(encoding='utf-8').strip()
+                    except Exception:
+                        version_str = ''
+
+                    commit_msg = f"chore(scan): add scan results{' ver'+version_str if version_str else ''} {datetime.datetime.utcnow().isoformat()}"
+                    commit_proc = subprocess.run(['git', '-C', str(repo_root), 'commit', '-m', commit_msg], capture_output=True, text=True)
+
+                    if commit_proc.returncode != 0:
+                        # 変更が無ければコミットは失敗（何も to commit）することがあるので情報を出す
+                        st.sidebar.info(f'git commit: {commit_proc.stdout}\n{commit_proc.stderr}')
+                    else:
+                        # プッシュ
+                        push_proc = subprocess.run(['git', '-C', str(repo_root), 'push', 'origin', 'main'], capture_output=True, text=True, timeout=120)
+                        if push_proc.returncode == 0:
+                            st.sidebar.success('スキャン結果を origin/main にコミット＆プッシュしました')
+                        else:
+                            st.sidebar.error(f'git push に失敗しました: {push_proc.stderr}')
+                except Exception as e:
+                    st.sidebar.error(f'自動コミット中に例外が発生しました: {e}')
             except Exception as e:
                 st.error(f'スキャン中にエラー: {e}')
 
