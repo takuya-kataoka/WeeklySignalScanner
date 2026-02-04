@@ -78,9 +78,17 @@ def main(relaxed_engulfing=False, end_date=None):
     prefix = '全銘柄_MA52_陽線包み'
     if relaxed_engulfing:
         prefix = prefix + '_緩和'
-    # config.jp_filename は "outputs/results/<name>_YYYY-MM-DD.csv" を返すため
-    # base_dir と結合して正しい絶対パスを作る
-    output_file = str(base_dir / config.jp_filename(prefix))
+    # 出力ファイル名を作成
+    # 単一日指定(as-of)がある場合は: <prefix>_<as-of YYYY-MM-DD>_<作成日時 YYYYmmddHHMMSS>.csv
+    if end_date:
+        # end_date は文字列 'YYYY-MM-DD' で渡される想定
+        created_ts = datetime.now().strftime('%Y%m%d%H%M%S')
+        safe = prefix.replace(' ', '_')
+        filename = f"{safe}_{end_date}_{created_ts}.csv"
+        output_file = str(base_dir / 'outputs' / 'results' / filename)
+    else:
+        # デフォルトの jp_filename を使う（当日の日付）
+        output_file = str(base_dir / config.jp_filename(prefix))
 
     # ヘッダー書き込み
     with open(output_file, 'w', newline='', encoding='utf-8') as f:
