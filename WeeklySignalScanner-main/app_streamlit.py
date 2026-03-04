@@ -335,7 +335,6 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                 tickers = sm.get_japanese_tickers(1000, 9999)
 
         bullish_results = []
-        bearish_results = []
 
         with st.spinner(f'月足スキャン中... {len(tickers)} 銘柄、{months_within}か月以内を確認'):
             for i, t in enumerate(tickers):
@@ -367,46 +366,24 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                         is_curr_bearish = curr_close < curr_open
                         bearish_engulfs = (curr_open >= prev_close) and (curr_close <= prev_open)
 
-                        if is_prev_bearish and is_curr_bullish and (bullish_engulfs or wick_engulf):
-                            bullish_results.append({
-                                'ticker': t,
-                                'pattern': 'bullish_engulfing',
-                                'months_ago': k,
-                                'prev_open': prev_open,
-                                'prev_close': prev_close,
-                                'curr_open': curr_open,
-                                'curr_close': curr_close,
-                                'latest_price': curr_close,
-                            })
-                            break
-                        if is_prev_bullish and is_curr_bearish and bearish_engulfs:
-                            bearish_results.append({
-                                'ticker': t,
-                                'pattern': 'bearish_engulfing',
-                                'months_ago': k,
-                                'prev_open': prev_open,
-                                'prev_close': prev_close,
-                                'curr_open': curr_open,
-                                'curr_close': curr_close,
-                                'latest_price': curr_close,
-                            })
-                            break
+                            if is_prev_bearish and is_curr_bullish and (bullish_engulfs or wick_engulf):
+                                bullish_results.append({
+                                    'ticker': t,
+                                    'pattern': 'bullish_engulfing',
+                                    'months_ago': k,
+                                    'prev_open': prev_open,
+                                    'prev_close': prev_close,
+                                    'curr_open': curr_open,
+                                    'curr_close': curr_close,
+                                    'latest_price': curr_close,
+                                })
+                                break
                 except Exception:
                     continue
 
         # CSV 保存
         os.makedirs(results_dir, exist_ok=True)
-        if bullish_results:
-            out_path = config.jp_filename(f'月足_陽線包み_within{months_within}m')
-            import csv
-            with open(out_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=['ticker', 'pattern', 'months_ago', 'latest_price', 'prev_open', 'prev_close', 'curr_open', 'curr_close'])
-                writer.writeheader()
-                writer.writerows(bullish_results)
-            st.success(f'陽線包み検出結果を保存: {out_path}')
-
-        if bearish_results:
-            out_path = config.jp_filename(f'月足_陰線包み_within{months_within}m')
+        # 自動コミット（既存ロジックに合わせる）
             import csv
             with open(out_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(f, fieldnames=['ticker', 'pattern', 'months_ago', 'latest_price', 'prev_open', 'prev_close', 'curr_open', 'curr_close'])

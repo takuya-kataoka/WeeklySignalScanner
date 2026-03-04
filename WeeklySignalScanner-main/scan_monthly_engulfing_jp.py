@@ -105,7 +105,6 @@ def scan_monthly_engulfing(tickers, verbose=False):
     複数銘柄の月足包み足をスキャン
     """
     bullish_results = []
-    bearish_results = []
     
     total = len(tickers)
     print(f"対象銘柄: {total}件")
@@ -118,15 +117,10 @@ def scan_monthly_engulfing(tickers, verbose=False):
         
         result = check_monthly_engulfing(ticker, verbose=False)
         
-        if result:
-            if result['pattern'] == 'bullish_engulfing':
-                bullish_results.append(result)
-                if verbose:
-                    print(f"✓ {ticker}: 陽線包み足")
-            elif result['pattern'] == 'bearish_engulfing':
-                bearish_results.append(result)
-                if verbose:
-                    print(f"⚠ {ticker}: 陰線包み足")
+        if result and result['pattern'] == 'bullish_engulfing':
+            bullish_results.append(result)
+            if verbose:
+                print(f"✓ {ticker}: 陽線包み足")
     
     return bullish_results, bearish_results
 
@@ -198,34 +192,14 @@ def main():
     print()
     print("=" * 70)
     
-    # 陰線包み足
-    print(f"【陰線包み足】 {len(bearish_results)}件")
-    print("（前月陽線→当月陰線で包む = 売りシグナル）")
-    print("-" * 70)
-    
-    if bearish_results:
-        print(f"{'銘柄':<10} {'最新価格':<12} {'前月':<20} {'当月':<20}")
-        print("-" * 70)
-        for r in bearish_results:
-            prev_candle = f"{r['prev_open']:.0f}→{r['prev_close']:.0f}"
-            curr_candle = f"{r['curr_open']:.0f}→{r['curr_close']:.0f}"
-            print(f"{r['ticker']:<10} ¥{r['latest_price']:>10,.0f}  {prev_candle:<20} {curr_candle:<20}")
-    else:
-        print("該当なし")
+    # 陰線包み足は今回出力対象外
+    print("【陰線包み足】 出力対象外")
     
     # CSVに保存
     import config
     os.makedirs('outputs/results', exist_ok=True)
 
-    if bullish_results:
-        output_path = config.jp_filename('月足_陽線包み')
-        with open(output_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=['ticker', 'pattern', 'latest_price', 
-                                                     'prev_open', 'prev_close', 
-                                                     'curr_open', 'curr_close', 'volume'])
-            writer.writeheader()
-            writer.writerows(bullish_results)
-        print()
+    # 陰線包みは出力しない
         print(f"✓ 陽線包み足を保存: {output_path}")
     
     if bearish_results:
