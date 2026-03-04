@@ -366,30 +366,33 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                         is_curr_bearish = curr_close < curr_open
                         bearish_engulfs = (curr_open >= prev_close) and (curr_close <= prev_open)
 
-                            if is_prev_bearish and is_curr_bullish and (bullish_engulfs or wick_engulf):
-                                bullish_results.append({
-                                    'ticker': t,
-                                    'pattern': 'bullish_engulfing',
-                                    'months_ago': k,
-                                    'prev_open': prev_open,
-                                    'prev_close': prev_close,
-                                    'curr_open': curr_open,
-                                    'curr_close': curr_close,
-                                    'latest_price': curr_close,
-                                })
-                                break
+                        if is_prev_bearish and is_curr_bullish and (bullish_engulfs or wick_engulf):
+                            bullish_results.append({
+                                'ticker': t,
+                                'pattern': 'bullish_engulfing',
+                                'months_ago': k,
+                                'prev_open': prev_open,
+                                'prev_close': prev_close,
+                                'curr_open': curr_open,
+                                'curr_close': curr_close,
+                                'latest_price': curr_close,
+                            })
+                            break
                 except Exception:
                     continue
 
         # CSV 保存
         os.makedirs(results_dir, exist_ok=True)
-        # 自動コミット（既存ロジックに合わせる）
+        saved_paths = []
+        if bullish_results:
+            out_path = config.jp_filename(f'月足_陽線包み_within{months_within}m')
             import csv
             with open(out_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(f, fieldnames=['ticker', 'pattern', 'months_ago', 'latest_price', 'prev_open', 'prev_close', 'curr_open', 'curr_close'])
                 writer.writeheader()
-                writer.writerows(bearish_results)
-            st.success(f'陰線包み検出結果を保存: {out_path}')
+                writer.writerows(bullish_results)
+            saved_paths.append(out_path)
+            st.success(f'陽線包み検出結果を保存: {out_path}')
 
         # 自動コミット（既存ロジックに合わせる）
         try:
