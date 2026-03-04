@@ -322,7 +322,14 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
             tickers.extend([f"{i:04d}.T" for i in range(6750, 6800)])
             tickers.extend([f"{i:04d}.T" for i in range(4000, 4100)])
         else:
-            tickers = sm.get_japanese_tickers(1000, 9999)
+            # Use the same candidate list used for downloads if available (範囲内全件と同じ)
+            try:
+                if 'candidates' in locals() and candidates:
+                    tickers = list(candidates)
+                else:
+                    tickers = sm.get_japanese_tickers(1000, 9999)
+            except Exception:
+                tickers = sm.get_japanese_tickers(1000, 9999)
 
         bullish_results = []
         bearish_results = []
