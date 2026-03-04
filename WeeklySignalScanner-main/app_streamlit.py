@@ -304,6 +304,176 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
             except Exception as e:
                 st.error(f'スキャン中にエラー: {e}')
 
+    # --- 新機能: 月足包み足を n か月以内に検出して抽出ファイルを作成 ---
+    st.markdown('### 月足抽出: 包み足が出ている銘柄を n か月以内に検出してファイル出力')
+    months_within = st.number_input('n (か月以内)', min_value=1, max_value=12, value=1, step=1)
+    scope_choice = st.selectbox('スキャン範囲', ['主要銘柄（7000/8000/9000 等）', '全銘柄（1000-9999）'])
+    if st.button('月足: 包み足が nか月以内に出ている抽出ファイルを作成'):
+        import scan_monthly_engulfing_jp as sm
+        import config, datetime
+        from pathlib import Path
+
+        # 選択範囲の決定
+        if scope_choice.startswith('主要'):
+            tickers = []
+            tickers.extend([f"{i:04d}.T" for i in range(7200, 7300)])
+            tickers.extend([f"{i:04d}.T" for i in range(8000, 8100)])
+            tickers.extend([f"{i:04d}.T" for i in range(9400, 9500)])
+            tickers.extend([f"{i:04d}.T" for i in range(6750, 6800)])
+            tickers.extend([f"{i:04d}.T" for i in range(4000, 4100)])
+        else:
+            tickers = sm.get_japanese_tickers(1000, 9999)
+
+        bullish_results = []
+        bearish_results = []
+
+        with st.spinner(f'月足スキャン中... {len(tickers)} 銘柄、{months_within}か月以内を確認'):
+            for i, t in enumerate(tickers):
+                try:
+                    # 月足を十分量取得（3年）
+                    dfm = yf.Ticker(t).history(period='3y', interval='1mo')
+                    if dfm is None or dfm.empty or len(dfm) < 2:
+                        continue
+                    L = len(dfm)
+                    # k=1 -> 当月（最新）と前月, k=2 -> 1か月前とその前, ...
+                    for k in range(1, months_within + 1):
+                        if L - (k + 1) < 0:
+                            break
+                        prev = dfm.iloc[-(k+1)]
+                        curr = dfm.iloc[-k]
+                        prev_open = float(prev['Open'])
+                        prev_close = float(prev['Close'])
+                        prev_high = float(prev['High']) if 'High' in prev else max(prev_open, prev_close)
+                        prev_low = float(prev['Low']) if 'Low' in prev else min(prev_open, prev_close)
+                        curr_open = float(curr['Open'])
+                        curr_close = float(curr['Close'])
+
+                        is_prev_bearish = prev_close < prev_open
+                        is_curr_bullish = curr_close > curr_open
+                        bullish_engulfs = (curr_open <= prev_close) and (curr_close >= prev_open)
+                        wick_engulf = (curr_open <= prev_low) and (curr_close >= prev_high)
+
+                        is_prev_bullish = prev_close > prev_open
+                        is_curr_bearish = curr_close < curr_open
+                        bearish_engulfs = (curr_open >= prev_close) and (curr_close <= prev_open)
+
+                        if is_prev_bearish and is_curr_bullish and (bullish_engulfs or wick_engulf):
+                            bullish_results.append({
+                                'ticker': t,
+                                'pattern': 'bullish_engulfing',
+                                'months_ago': k,
+                                'prev_open': prev_open,
+                                'prev_close': prev_close,
+                                'curr_open': curr_open,
+                                'curr_close': curr_close,
+                                'latest_price': curr_close,
+                            })
+                            break
+                        if is_prev_bullish and is_curr_bearish and bearish_engulfs:
+                            bearish_results.append({
+                                'ticker': t,
+                                'pattern': 'bearish_engulfing',
+                                'months_ago': k,
+                                'prev_open': prev_open,
+                                'prev_close': prev_close,
+                                'curr_open': curr_open,
+                                'curr_close': curr_close,
+                                'latest_price': curr_close,
+                            })
+                            break
+                except Exception:
+                    continue
+
+        # CSV 保存
+        os.makedirs(results_dir, exist_ok=True)
+        if bullish_results:
+            out_path = config.jp_filename(f'月足_陽線包み_within{months_within}m')
+            import csv
+            with open(out_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=['ticker', 'pattern', 'months_ago', 'latest_price', 'prev_open', 'prev_close', 'curr_open', 'curr_close'])
+                writer.writeheader()
+                writer.writerows(bullish_results)
+            st.success(f'陽線包み検出結果を保存: {out_path}')
+
+        if bearish_results:
+            out_path = config.jp_filename(f'月足_陰線包み_within{months_within}m')
+            import csv
+            with open(out_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=['ticker', 'pattern', 'months_ago', 'latest_price', 'prev_open', 'prev_close', 'curr_open', 'curr_close'])
+                writer.writeheader()
+                writer.writerows(bearish_results)
+            st.success(f'陰線包み検出結果を保存: {out_path}')
+
+        # 自動コミット（既存ロジックに合わせる）
+        try:
+            import subprocess
+            repo_root = base_dir.parent
+            subprocess.run(['git', '-C', str(repo_root), 'config', 'user.email', 'streamlit@example.com'], check=False)
+            subprocess.run(['git', '-C', str(repo_root), 'config', 'user.name', 'StreamlitAutoCommit'], check=False)
+
+            added_any = False
+            for p in sorted(Path(results_dir).rglob('*')):
+                if p.is_file():
+                    relp = os.path.relpath(str(p), start=str(repo_root))
+                    add_proc = subprocess.run(['git', '-C', str(repo_root), 'add', '-f', relp], capture_output=True, text=True)
+                    st.sidebar.info(f'git add {relp} -> returncode={add_proc.returncode}')
+                    if add_proc.returncode == 0:
+                        added_any = True
+
+            if added_any:
+                try:
+                    bump_script = repo_root / 'scripts' / 'bump_version.py'
+                    if bump_script.exists():
+                        subprocess.run(['python3', str(bump_script)], check=False)
+                        subprocess.run(['git', '-C', str(repo_root), 'add', 'VERSION'], check=False)
+                except Exception:
+                    pass
+
+                version_str = ''
+                try:
+                    vpath = repo_root / 'VERSION'
+                    if vpath.exists():
+                        version_str = vpath.read_text(encoding='utf-8').strip()
+                except Exception:
+                    version_str = ''
+
+                commit_msg = f"chore(monthly_scan): add monthly engulfing within {months_within}m{' ver'+version_str if version_str else ''} {datetime.datetime.utcnow().isoformat()}"
+                commit_proc = subprocess.run(['git', '-C', str(repo_root), 'commit', '-m', commit_msg], capture_output=True, text=True)
+                st.sidebar.info(f'git commit returncode={commit_proc.returncode}\nstdout:{commit_proc.stdout}\nstderr:{commit_proc.stderr}')
+                if commit_proc.returncode == 0:
+                    try:
+                        token = os.environ.get('GITHUB_TOKEN')
+                        try:
+                            if not token:
+                                token = st.secrets.get('GITHUB_TOKEN') if hasattr(st, 'secrets') and 'GITHUB_TOKEN' in st.secrets else None
+                        except Exception:
+                            pass
+
+                        if token:
+                            rem = subprocess.run(['git', '-C', str(repo_root), 'remote', 'get-url', 'origin'], capture_output=True, text=True)
+                            origin_url = rem.stdout.strip()
+                            if origin_url.startswith('https://'):
+                                auth_url = origin_url.replace('https://', f'https://{token}@')
+                            else:
+                                auth_url = origin_url
+                            push_proc = subprocess.run(['git', '-C', str(repo_root), 'push', auth_url, 'main'], capture_output=True, text=True, timeout=120)
+                        else:
+                            push_proc = subprocess.run(['git', '-C', str(repo_root), 'push', 'origin', 'main'], capture_output=True, text=True, timeout=120)
+
+                        st.sidebar.info(f'git push returncode={push_proc.returncode}\nstdout:{push_proc.stdout}\nstderr:{push_proc.stderr}')
+                        if push_proc.returncode == 0:
+                            st.sidebar.success('月足抽出結果を origin/main にコミット＆プッシュしました')
+                        else:
+                            st.sidebar.error('git push に失敗しました。認証情報が設定されているか確認してください。')
+                    except Exception as e:
+                        st.sidebar.error(f'git push 実行中に例外: {e}')
+                else:
+                    st.sidebar.info('コミットする変更はないか、コミットに失敗しました（サイドバーログを確認）')
+            else:
+                st.sidebar.info('outputs/results 内にステージ可能なファイルが見つかりませんでした（.gitignore を確認してください）')
+        except Exception as e:
+            st.sidebar.error(f'自動コミット中に例外が発生しました: {e}')
+
     # ファイル削除 UI
     with st.expander('ファイル管理: outputs/results の削除', expanded=False):
         try:
