@@ -1,0 +1,3 @@
+ticker,pattern,months_ago,latest_price,prev_open,prev_close,curr_open,curr_close
+7250.T,bullish_engulfing,1,3015.0,3015.0,3010.0,3010.0,3015.0
+9478.T,bullish_engulfing,1,488.0,466.0,456.0,451.0,488.0
