@@ -645,8 +645,11 @@ for p in candidates:
         continue
 
 # 価格でソート（結果ファイルに price 列または別途作成した price_map がある場合）
+# 月足出力では 'latest_price' を出力するためそれを優先して昇順ソートする
 if 'price' in df.columns:
     df = df.sort_values('price').reset_index(drop=True)
+elif 'latest_price' in df.columns:
+    df = df.sort_values('latest_price').reset_index(drop=True)
 elif price_map:
     # マップに基づいて price 列を作りソート
     df = df.copy()
@@ -689,6 +692,18 @@ def fetch_data(ticker):
             return None
         return data
     except Exception as e:
+        return None
+
+
+# 月足データ取得（キャッシュ付き）
+@st.cache_data(ttl=3600)
+def fetch_month_data(ticker):
+    try:
+        data = yf.Ticker(ticker).history(period='5y', interval='1mo')
+        if data.empty:
+            return None
+        return data
+    except Exception:
         return None
 
 # 選択された銘柄に対してチャート表示
@@ -785,7 +800,7 @@ if display_mode == "10銘柄一覧":
                 fig.update_xaxes(showticklabels=False, row=1, col=1)
                 fig.update_xaxes(showticklabels=False, row=2, col=1)
                 
-                st.plotly_chart(fig, use_container_width=True, key=f"chart_grid_{ticker}")
+                st.plotly_chart(fig, width='stretch', key=f"chart_grid_{ticker}")
 
 else:
     # 単一銘柄モード
@@ -840,6 +855,14 @@ else:
             pass
         
         # チャート作成
+        # 月足ファイルから来ているか判定（ファイル名に '月足' が含まれる場合）
+        is_month_file = False
+        try:
+            sel_name = Path(str(selected_file)).name
+            if '月足' in sel_name:
+                is_month_file = True
+        except Exception:
+            is_month_file = False
         fig = make_subplots(
             rows=2, cols=1,
             shared_xaxes=True,
@@ -902,6 +925,29 @@ else:
         fig.update_yaxes(title_text="出来高", row=2, col=1)
         fig.update_xaxes(title_text="日付", row=2, col=1)
         
-        st.plotly_chart(fig, use_container_width=True, key=f"chart_{ticker}")
+        if is_month_file:
+            # 月足表示も取得して横並び表示
+            month_data = fetch_month_data(ticker)
+            if month_data is None:
+                st.plotly_chart(fig, width='stretch', key=f"chart_{ticker}")
+            else:
+                # 週足と月足を左右に並べる
+                c1, c2 = st.columns([1, 1])
+                with c1:
+                    st.plotly_chart(fig, width='stretch', key=f"chart_week_{ticker}")
+                # 月足チャート作成
+                mfig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3], subplot_titles=(f'{ticker} 月足チャート', '出来高'))
+                mfig.add_trace(go.Candlestick(x=month_data.index, open=month_data['Open'], high=month_data['High'], low=month_data['Low'], close=month_data['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue'), row=1, col=1)
+                mfig.add_trace(go.Scatter(x=month_data.index, y=month_data['Close'].rolling(12).mean(), name='MA12(months)', line=dict(color='orange', width=2)), row=1, col=1)
+                mcolors = ['red' if month_data['Close'].iloc[i] >= month_data['Open'].iloc[i] else 'blue' for i in range(len(month_data))]
+                mfig.add_trace(go.Bar(x=month_data.index, y=month_data['Volume'], name='出来高', marker_color=mcolors, showlegend=False), row=2, col=1)
+                mfig.update_layout(height=600, xaxis_rangeslider_visible=False, hovermode='x unified', template='plotly_white', showlegend=True)
+                mfig.update_yaxes(title_text="株価 (¥)", row=1, col=1)
+                mfig.update_yaxes(title_text="出来高", row=2, col=1)
+                mfig.update_xaxes(title_text="日付", row=2, col=1)
+                with c2:
+                    st.plotly_chart(mfig, width='stretch', key=f"chart_month_{ticker}")
+        else:
+            st.plotly_chart(fig, width='stretch', key=f"chart_{ticker}")
         
  # test
