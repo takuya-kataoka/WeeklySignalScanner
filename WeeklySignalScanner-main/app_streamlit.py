@@ -385,13 +385,17 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
         os.makedirs(results_dir, exist_ok=True)
         saved_paths = []
         if bullish_results:
-            out_path = config.jp_filename(f'月足_陽線包み_within{months_within}m')
+            # config.jp_filename は相対パス文字列を返すため、実行時のカレントディレクトリに依存してしまう。
+            # ここでは明示的に `results_dir` の下にファイル名を作成して保存する。
+            fname = Path(config.jp_filename(f'月足_陽線包み_within{months_within}m')).name
+            out_path = results_dir / fname
             import csv
+            out_path.parent.mkdir(parents=True, exist_ok=True)
             with open(out_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(f, fieldnames=['ticker', 'pattern', 'months_ago', 'latest_price', 'prev_open', 'prev_close', 'curr_open', 'curr_close'])
                 writer.writeheader()
                 writer.writerows(bullish_results)
-            saved_paths.append(out_path)
+            saved_paths.append(str(out_path))
             st.success(f'陽線包み検出結果を保存: {out_path}')
 
         # 自動コミット（既存ロジックに合わせる）
