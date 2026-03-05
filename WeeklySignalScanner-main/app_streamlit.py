@@ -308,6 +308,8 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
     st.markdown('### 月足抽出: 包み足が出ている銘柄を n か月以内に検出してファイル出力')
     months_within = st.number_input('n (か月以内)', min_value=1, max_value=12, value=1, step=1)
     scope_choice = st.selectbox('スキャン範囲', ['主要銘柄（7000/8000/9000 等）', '全銘柄（1000-9999）'])
+    # キャッシュのみスキャン: data/*.parquet が存在する場合はそれを使ってネット取得を最小化する
+    cache_only = st.checkbox('キャッシュのみでスキャン（data/*.parquet のみ）', value=True, help='有効にすると既にダウンロード済みのキャッシュのみをスキャンします。全件をネット取得したい場合はオフにしてください。')
     if st.button('月足: 包み足が nか月以内に出ている抽出ファイルを作成'):
         import scan_monthly_engulfing_jp as sm
         import config, datetime
@@ -322,17 +324,24 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
             tickers.extend([f"{i:04d}.T" for i in range(6750, 6800)])
             tickers.extend([f"{i:04d}.T" for i in range(4000, 4100)])
         else:
-            # Prefer the actual download target list (`targets`) if available (ダウンロード対象と同じ)
-            # Fallback to `candidates` (範囲内全件) and finally to full generated range
+            # キャッシュがある場合は cache_only の挙動を優先してキャッシュのみを使う
+            data_cache_dir = base_dir.parent / 'data'
+            cached_files = sorted([p.stem for p in data_cache_dir.glob('*.parquet')]) if data_cache_dir.exists() else []
             try:
-                if 'targets' in locals() and targets:
-                    tickers = list(targets)
-                elif 'candidates' in locals() and candidates:
-                    tickers = list(candidates)
+                if cache_only and cached_files:
+                    tickers = cached_files
                 else:
-                    tickers = sm.get_japanese_tickers(1000, 9999)
+                    # Prefer the actual download target list (`targets`) if available
+                    if 'targets' in locals() and targets:
+                        tickers = list(targets)
+                    elif 'candidates' in locals() and candidates:
+                        tickers = list(candidates)
+                    else:
+                        tickers = sm.get_japanese_tickers(1000, 9999)
             except Exception:
                 tickers = sm.get_japanese_tickers(1000, 9999)
+            # 表示用にキャッシュ状況を出す
+            st.sidebar.info(f'cache_count={len(cached_files)}  scan_target_count={len(tickers)}')
 
         bullish_results = []
 
