@@ -310,8 +310,9 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
     scope_choice = st.selectbox('スキャン範囲', ['全銘柄（1000-9999）'])
     # キャッシュのみスキャン: data/*.parquet が存在する場合はそれを使ってネット取得を最小化する
     cache_only = st.checkbox('キャッシュのみでスキャン（data/*.parquet のみ）', value=True, help='有効にすると既にダウンロード済みのキャッシュのみをスキャンします。全件をネット取得したい場合はオフにしてください。')
-    # --- 新しいオプション: 包み足検出後の最大上昇率でフィルタ ---
-    rise_filter_enable = st.checkbox('包み足検出後の上昇率でフィルタする', value=False, help='有効にすると検出後の最大上昇率が指定値以下の銘柄のみ抽出します')
+    # --- 新しいオプション: 包み足検出後の上昇率でフィルタ ---
+    rise_filter_enable = st.checkbox('包み足検出後の上昇率でフィルタする', value=False, help='有効にすると検出後の上昇率が指定範囲内の銘柄のみ抽出します')
+    min_allowed_rise_pct = st.number_input('最低上昇率（%、下限）', min_value=0.0, max_value=1000.0, value=0.0, step=0.1, help='検出後の最大上昇率がこの値以上の銘柄のみ抽出します')
     max_allowed_rise_pct = st.number_input('最大上昇率（%、上限）', min_value=0.0, max_value=1000.0, value=50.0, step=0.1, help='検出後の最大上昇率がこの値以下の銘柄のみ抽出します')
     lookahead_months = st.number_input('検出後の追跡月数（0=検出時のみ）', min_value=0, max_value=36, value=6, step=1, help='包み足検出後、何か月分を見て最大上昇率を算出するか')
     if st.button('月足: 包み足が nか月以内に出ている抽出ファイルを作成'):
@@ -386,8 +387,8 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                             except Exception:
                                 max_rise_pct = 0.0
 
-                            # フィルタ判定: 有効なら許容上限を超えるものは除外する
-                            if rise_filter_enable and (max_rise_pct > float(max_allowed_rise_pct)):
+                            # フィルタ判定: 有効なら最低/最高の範囲外は除外する
+                            if rise_filter_enable and ((max_rise_pct > float(max_allowed_rise_pct)) or (max_rise_pct < float(min_allowed_rise_pct))):
                                 # 条件に合わないのでスキップ
                                 pass
                             else:

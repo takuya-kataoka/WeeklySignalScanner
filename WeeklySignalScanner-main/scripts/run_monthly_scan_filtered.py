@@ -23,6 +23,7 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 months_within = 6
 lookahead_months = 6
 max_allowed_rise_pct = 100.0
+min_allowed_rise_pct = 0.0
 rise_filter_enable = True
 cache_only = True
 
@@ -75,7 +76,7 @@ for i, t in enumerate(tickers, 1):
                     max_rise_pct = round((max_close - float(curr_close)) / float(curr_close) * 100.0, 2)
                 except Exception:
                     max_rise_pct = 0.0
-                if rise_filter_enable and (max_rise_pct > float(max_allowed_rise_pct)):
+                if rise_filter_enable and (max_rise_pct > float(max_allowed_rise_pct) or max_rise_pct < float(min_allowed_rise_pct)):
                     # skip
                     found = False
                 else:

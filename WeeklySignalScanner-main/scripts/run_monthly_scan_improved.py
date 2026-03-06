@@ -39,6 +39,7 @@ max_allowed_rise_pct = 100.0
 rise_filter_enable = True
 retries = 3
 sleep_between_retries = 2.0
+min_allowed_rise_pct = 0.0
 
 # Files
 ts = datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')
@@ -147,7 +148,7 @@ for idx, ticker in enumerate(all_tickers, 1):
                 except Exception:
                     max_rise_pct = 0.0
 
-                if rise_filter_enable and (max_rise_pct > float(max_allowed_rise_pct)):
+                if rise_filter_enable and (max_rise_pct > float(max_allowed_rise_pct) or max_rise_pct < float(min_allowed_rise_pct)):
                     # filtered out
                     found = False
                 else:
