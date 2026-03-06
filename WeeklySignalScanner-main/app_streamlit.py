@@ -310,6 +310,10 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
     scope_choice = st.selectbox('スキャン範囲', ['主要銘柄（7000/8000/9000 等）', '全銘柄（1000-9999）'])
     # キャッシュのみスキャン: data/*.parquet が存在する場合はそれを使ってネット取得を最小化する
     cache_only = st.checkbox('キャッシュのみでスキャン（data/*.parquet のみ）', value=True, help='有効にすると既にダウンロード済みのキャッシュのみをスキャンします。全件をネット取得したい場合はオフにしてください。')
+    # --- 新しいオプション: 包み足検出後の最大上昇率でフィルタ ---
+    rise_filter_enable = st.checkbox('包み足検出後の上昇率でフィルタする', value=False, help='有効にすると検出後の最大上昇率が指定値以下の銘柄のみ抽出します')
+    max_allowed_rise_pct = st.number_input('最大上昇率（%、上限）', min_value=0.0, max_value=1000.0, value=50.0, step=0.1, help='検出後の最大上昇率がこの値以下の銘柄のみ抽出します')
+    lookahead_months = st.number_input('検出後の追跡月数（0=検出時のみ）', min_value=0, max_value=36, value=6, step=1, help='包み足検出後、何か月分を見て最大上昇率を算出するか')
     if st.button('月足: 包み足が nか月以内に出ている抽出ファイルを作成'):
         import scan_monthly_engulfing_jp as sm
         import config, datetime
@@ -376,17 +380,38 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                         bearish_engulfs = (curr_open >= prev_close) and (curr_close <= prev_open)
 
                         if is_prev_bearish and is_curr_bullish and (bullish_engulfs or wick_engulf):
-                            bullish_results.append({
-                                'ticker': t,
-                                'pattern': 'bullish_engulfing',
-                                'months_ago': k,
-                                'prev_open': prev_open,
-                                'prev_close': prev_close,
-                                'curr_open': curr_open,
-                                'curr_close': curr_close,
-                                'latest_price': curr_close,
-                            })
-                            break
+                            # signal index (0-based) for the current month in dfm
+                            signal_idx = L - k
+                            # lookahead window: include the signal month and following months up to lookahead_months
+                            end_idx = min(signal_idx + int(lookahead_months) + 1, L)
+                            try:
+                                closes = dfm['Close'].iloc[signal_idx:end_idx].astype(float)
+                                max_close = float(closes.max()) if not closes.empty else float(curr_close)
+                            except Exception:
+                                max_close = float(curr_close)
+                            # 最大上昇率（%）: signal の終値に対する最大上昇率
+                            try:
+                                max_rise_pct = round((max_close - float(curr_close)) / float(curr_close) * 100.0, 2)
+                            except Exception:
+                                max_rise_pct = 0.0
+
+                            # フィルタ判定: 有効なら許容上限を超えるものは除外する
+                            if rise_filter_enable and (max_rise_pct > float(max_allowed_rise_pct)):
+                                # 条件に合わないのでスキップ
+                                pass
+                            else:
+                                bullish_results.append({
+                                    'ticker': t,
+                                    'pattern': 'bullish_engulfing',
+                                    'months_ago': k,
+                                    'prev_open': prev_open,
+                                    'prev_close': prev_close,
+                                    'curr_open': curr_open,
+                                    'curr_close': curr_close,
+                                    'latest_price': curr_close,
+                                    'max_rise_pct': max_rise_pct,
+                                })
+                                break
                 except Exception:
                     continue
 
@@ -396,12 +421,17 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
         if bullish_results:
             # config.jp_filename は相対パス文字列を返すため、実行時のカレントディレクトリに依存してしまう。
             # ここでは明示的に `results_dir` の下にファイル名を作成して保存する。
-            fname = Path(config.jp_filename(f'月足_陽線包み_within{months_within}m')).name
-            out_path = results_dir / fname
+            # ファイル名に抽出時刻（UTC）を付与して上書きを防ぐ
+            base_fname = Path(config.jp_filename(f'月足_陽線包み_within{months_within}m')).name
+            stem = Path(base_fname).stem
+            ext = Path(base_fname).suffix or '.csv'
+            ts = datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+            new_name = f"{stem}_{ts}{ext}"
+            out_path = results_dir / new_name
             import csv
             out_path.parent.mkdir(parents=True, exist_ok=True)
             with open(out_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=['ticker', 'pattern', 'months_ago', 'latest_price', 'prev_open', 'prev_close', 'curr_open', 'curr_close'])
+                writer = csv.DictWriter(f, fieldnames=['ticker', 'pattern', 'months_ago', 'latest_price', 'prev_open', 'prev_close', 'curr_open', 'curr_close', 'max_rise_pct'])
                 writer.writeheader()
                 writer.writerows(bullish_results)
             saved_paths.append(str(out_path))
