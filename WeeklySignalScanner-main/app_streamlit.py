@@ -687,6 +687,15 @@ if 'ticker' not in df.columns:
 
 ticker_list = df['ticker'].tolist()
 
+# 選択ファイルが月足ファイルかどうかを先に判定（一覧表示でも月足を表示するため）
+is_month_file = False
+try:
+    sel_name = Path(str(selected_file)).name
+    if '月足' in sel_name:
+        is_month_file = True
+except Exception:
+    is_month_file = False
+
 # 表示モード選択
 display_mode = st.sidebar.radio("表示モード", ["単一銘柄", "10銘柄一覧"])
 
@@ -740,89 +749,48 @@ if display_mode == "10銘柄一覧":
             ticker = selected_tickers[idx]
             
             with col:
-                data = fetch_data(ticker)
-                
-                if data is None:
-                    st.warning(f"{ticker}: データ取得失敗")
-                    continue
-                
-                # メトリクス表示（コンパクト）
-                # まず price_map に価格があればそれを優先して表示（ページ切替で値が固定される問題を回避）
-                latest_close = price_map.get(str(ticker)) if price_map else None
-                if latest_close is None:
-                    latest_close = data['Close'].iloc[-1]
-                ma52 = data['Close'].rolling(52).mean().iloc[-1]
-
-
-                st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}")
-                
-                # チャート作成（小さめサイズ）
-                fig = make_subplots(
-                    rows=2, cols=1,
-                    shared_xaxes=True,
-                    vertical_spacing=0.05,
-                    row_heights=[0.75, 0.25]
-                )
-                
-                # ローソク足
-                fig.add_trace(
-                    go.Candlestick(
-                        x=data.index,
-                        open=data['Open'],
-                        high=data['High'],
-                        low=data['Low'],
-                        close=data['Close'],
-                        name='価格',
-                        increasing_line_color='red',
-                        decreasing_line_color='blue',
-                        showlegend=False
-                    ),
-                    row=1, col=1
-                )
-                
-                # MA52
-                fig.add_trace(
-                    go.Scatter(
-                        x=data.index,
-                        y=data['Close'].rolling(52).mean(),
-                        name='MA52',
-                        line=dict(color='orange', width=1),
-                        showlegend=False
-                    ),
-                    row=1, col=1
-                )
-                
-                # 出来高
-                colors = ['red' if data['Close'].iloc[k] >= data['Open'].iloc[k] else 'blue' 
-                          for k in range(len(data))]
-                
-                fig.add_trace(
-                    go.Bar(
-                        x=data.index,
-                        y=data['Volume'],
-                        marker_color=colors,
-                        showlegend=False
-                    ),
-                    row=2, col=1
-                )
-                
-                # レイアウト調整（コンパクト）
-                fig.update_layout(
-                    height=300,
-                    margin=dict(l=30, r=10, t=20, b=20),
-                    xaxis_rangeslider_visible=False,
-                    hovermode='x unified',
-                    template='plotly_white',
-                    showlegend=False,
-                    font=dict(size=8)
-                )
-                
-                fig.update_yaxes(title_text="", row=1, col=1)
-                fig.update_yaxes(title_text="", row=2, col=1)
-                fig.update_xaxes(showticklabels=False, row=1, col=1)
-                fig.update_xaxes(showticklabels=False, row=2, col=1)
-                
-                st.plotly_chart(fig, width='stretch', key=f"chart_grid_{ticker}")
+                    # グリッド表示: 選択ファイルが月足ファイルなら月足を表示（小さめ）、なければ週足を表示
+                    if is_month_file:
+                        month_data = fetch_month_data(ticker)
+                        if month_data is None:
+                            st.warning(f"{ticker}: 月足データ取得失敗")
+                            continue
+                        latest_close = price_map.get(str(ticker)) if price_map else None
+                        if latest_close is None:
+                            latest_close = month_data['Close'].iloc[-1]
+                        st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}")
+                        mfig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.75, 0.25])
+                        mfig.add_trace(go.Candlestick(x=month_data.index, open=month_data['Open'], high=month_data['High'], low=month_data['Low'], close=month_data['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue', showlegend=False), row=1, col=1)
+                        mfig.add_trace(go.Scatter(x=month_data.index, y=month_data['Close'].rolling(12).mean(), name='MA12', line=dict(color='orange', width=1), showlegend=False), row=1, col=1)
+                        mcolors = ['red' if month_data['Close'].iloc[k] >= month_data['Open'].iloc[k] else 'blue' for k in range(len(month_data))]
+                        mfig.add_trace(go.Bar(x=month_data.index, y=month_data['Volume'], marker_color=mcolors, showlegend=False), row=2, col=1)
+                        mfig.update_layout(height=300, margin=dict(l=30, r=10, t=20, b=20), xaxis_rangeslider_visible=False, hovermode='x unified', template='plotly_white', font=dict(size=8))
+                        mfig.update_yaxes(title_text="", row=1, col=1)
+                        mfig.update_yaxes(title_text="", row=2, col=1)
+                        mfig.update_xaxes(showticklabels=False, row=1, col=1)
+                        mfig.update_xaxes(showticklabels=False, row=2, col=1)
+                        st.plotly_chart(mfig, width='stretch', key=f"chart_grid_month_{ticker}")
+                    else:
+                        data = fetch_data(ticker)
+                        if data is None:
+                            st.warning(f"{ticker}: データ取得失敗")
+                            continue
+                        # 週足表示
+                        latest_close = price_map.get(str(ticker)) if price_map else None
+                        if latest_close is None:
+                            latest_close = data['Close'].iloc[-1]
+                        st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}")
+                        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.75, 0.25])
+                        fig.add_trace(go.Candlestick(x=data.index, open=data['Open'], high=data['High'], low=data['Low'], close=data['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue', showlegend=False), row=1, col=1)
+                        fig.add_trace(go.Scatter(x=data.index, y=data['Close'].rolling(52).mean(), name='MA52', line=dict(color='orange', width=1), showlegend=False), row=1, col=1)
+                        colors = ['red' if data['Close'].iloc[k] >= data['Open'].iloc[k] else 'blue' for k in range(len(data))]
+                        fig.add_trace(go.Bar(x=data.index, y=data['Volume'], marker_color=colors, showlegend=False), row=2, col=1)
+                        fig.update_layout(height=300, margin=dict(l=30, r=10, t=20, b=20), xaxis_rangeslider_visible=False, hovermode='x unified', template='plotly_white', font=dict(size=8))
+                        fig.update_yaxes(title_text="", row=1, col=1)
+                        fig.update_yaxes(title_text="", row=2, col=1)
+                        fig.update_xaxes(showticklabels=False, row=1, col=1)
+                        fig.update_xaxes(showticklabels=False, row=2, col=1)
+                        st.plotly_chart(fig, width='stretch', key=f"chart_grid_{ticker}")
 
 else:
     # 単一銘柄モード
