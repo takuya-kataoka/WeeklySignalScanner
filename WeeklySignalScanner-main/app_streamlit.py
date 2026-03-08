@@ -951,13 +951,12 @@ else:
             # 月足表示も取得して横並び表示
             month_data = fetch_month_data(ticker)
             if month_data is None:
+                # 月足データが無ければ通常の週足チャートを表示
                 st.plotly_chart(fig, width='stretch', key=f"chart_{ticker}")
             else:
-                # 週足と月足を左右に並べる
+                # 月足ファイル表示時は月足をメインに表示、週足は補助として右側に表示
                 c1, c2 = st.columns([1, 1])
-                with c1:
-                    st.plotly_chart(fig, width='stretch', key=f"chart_week_{ticker}")
-                # 月足チャート作成
+                # 月足チャート作成（メイン）
                 mfig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3], subplot_titles=(f'{ticker} 月足チャート', '出来高'))
                 mfig.add_trace(go.Candlestick(x=month_data.index, open=month_data['Open'], high=month_data['High'], low=month_data['Low'], close=month_data['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue'), row=1, col=1)
                 mfig.add_trace(go.Scatter(x=month_data.index, y=month_data['Close'].rolling(12).mean(), name='MA12(months)', line=dict(color='orange', width=2)), row=1, col=1)
@@ -967,8 +966,11 @@ else:
                 mfig.update_yaxes(title_text="株価 (¥)", row=1, col=1)
                 mfig.update_yaxes(title_text="出来高", row=2, col=1)
                 mfig.update_xaxes(title_text="日付", row=2, col=1)
-                with c2:
+                with c1:
                     st.plotly_chart(mfig, width='stretch', key=f"chart_month_{ticker}")
+                # 右側に週足（補助）を表示
+                with c2:
+                    st.plotly_chart(fig, width='stretch', key=f"chart_week_{ticker}")
         else:
             st.plotly_chart(fig, width='stretch', key=f"chart_{ticker}")
         
