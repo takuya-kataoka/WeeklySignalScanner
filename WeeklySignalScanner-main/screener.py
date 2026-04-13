@@ -5,7 +5,7 @@ from utils import calculate_ma
 # EXCLUDED_TICKERS は data_fetcher から取得する（検証CSVで追加されたものを含む）
 from data_fetcher import EXCLUDED_TICKERS
 
-def check_signal(ticker, short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0, data_df=None, require_ma52=True, require_engulfing=True, relaxed_engulfing=False, engulf_within_months=None):
+def check_signal(ticker, short_window=10, long_window=20, period="2y", interval="1wk", threshold=0.0, data_df=None, require_ma52=True, require_engulfing=True, relaxed_engulfing=False):
     """
     指定パラメータでティッカーのシグナルを判定する。
 
@@ -44,123 +44,87 @@ def check_signal(ticker, short_window=10, long_window=20, period="2y", interval=
             # if resample fails, fall back to using the cache as-is
             pass
 
-    # remove rows with missing Close (keep DatetimeIndex for period-based checks)
+    # remove rows with missing Close and reset index (we operate on positional rows later)
     data.dropna(inplace=True)
+    data.reset_index(drop=True, inplace=True)
 
-    # 直近2足が必要
+    # 新判定ロジック:
+    # - 週足で「陽線包み足 (bullish engulfing)」が発生していること
+    # - かつ最新終値が週足の52週移動平均 (MA52) 以上であること
+
+    # 直近2本のローソク足が必要
     if len(data) < 2:
-        print(f"{ticker}: データが足りません（2足未満）")
+        print(f"{ticker}: データが足りません（2週未満）")
         return False
 
-    # helper: detect bullish engulfing at position i (prev = i-1, curr = i)
-    def _is_engulf(prev_row, curr_row):
-        try:
-            prev_open = float(prev_row["Open"])
-            prev_close = float(prev_row["Close"])
-            prev_high = float(prev_row.get("High", prev_open))
-            prev_low = float(prev_row.get("Low", prev_close))
-            curr_open = float(curr_row["Open"])
-            curr_close = float(curr_row["Close"])
-        except Exception:
-            return False
-        is_prev_bear = prev_close < prev_open
-        is_curr_bull = curr_close > curr_open
-        engulfs = (curr_open <= prev_close) and (curr_close >= prev_open)
-        wick_engulf = (curr_open <= prev_low) and (curr_close >= prev_high)
-        if relaxed_engulfing:
-            return is_prev_bear and is_curr_bull and (engulfs or wick_engulf or (curr_close >= prev_open))
-        else:
-            return is_prev_bear and is_curr_bull and (engulfs or wick_engulf)
-
-    # If engulf_within_months is provided, search weekly and monthly resampled series
-    if engulf_within_months is not None and isinstance(engulf_within_months, int) and engulf_within_months > 0:
-        # ensure DatetimeIndex for resampling
-        if not isinstance(data.index, pd.DatetimeIndex):
-            try:
-                data.index = pd.to_datetime(data.index)
-            except Exception:
-                pass
-
-        last_ts = data.index.max()
-        start_ts = last_ts - pd.DateOffset(months=engulf_within_months)
-
-        found = False
-        # weekly
-        try:
-            weekly = data.resample('W-FRI').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
-            weekly = weekly.loc[weekly.index > start_ts]
-            for i in range(1, len(weekly)):
-                if _is_engulf(weekly.iloc[i-1], weekly.iloc[i]):
-                    found = True
-                    break
-        except Exception:
-            pass
-
-        # monthly
-        if not found:
-            try:
-                monthly = data.resample('M').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
-                monthly = monthly.loc[monthly.index > start_ts]
-                for i in range(1, len(monthly)):
-                    if _is_engulf(monthly.iloc[i-1], monthly.iloc[i]):
-                        found = True
-                        break
-            except Exception:
-                pass
-
-        if found:
-            # If MA52 required, compute MA52 on weekly data and check latest week
-            if require_ma52:
-                try:
-                    weekly_full = data.resample('W-FRI').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
-                    weekly_full['MA52'] = calculate_ma(weekly_full['Close'], 52)
-                    ma52_latest = weekly_full['MA52'].iloc[-1]
-                    curr_close = weekly_full['Close'].iloc[-1]
-                    if pd.isna(ma52_latest) or curr_close < ma52_latest:
-                        return False
-                except Exception:
-                    return False
-            print(f"{ticker}: シグナル検出 (陽線包み within {engulf_within_months} months on weekly/monthly)")
-            return True
-
-        return False
-
-    # Fallback: original behavior — check latest two candles
     # MA52 を計算（必要な場合のみ）
     ma52_latest = None
     if require_ma52:
-        try:
-            weekly_full = data.resample('W-FRI').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
-            weekly_full['MA52'] = calculate_ma(weekly_full['Close'], 52)
-            ma52_latest = weekly_full['MA52'].iloc[-1]
-            if pd.isna(ma52_latest):
-                print(f"{ticker}: MA52が計算できません（データ不足）")
-                return False
-        except Exception:
-            print(f"{ticker}: MA52計算時にエラー")
+        data["MA52"] = calculate_ma(data["Close"], 52)
+        ma52_latest = data["MA52"].iloc[-1]
+        if pd.isna(ma52_latest):
+            print(f"{ticker}: MA52が計算できません（データ不足）")
             return False
 
     # 最新と1つ前の足
     prev = data.iloc[-2]
     curr = data.iloc[-1]
 
-    if _is_engulf(prev, curr):
-        cond_engulf = True
-    else:
-        cond_engulf = not require_engulfing
+    # 必要な値が存在するか
+    try:
+        def _to_float(val):
+            # val may be a scalar or a single-element Series; handle both
+            if isinstance(val, (list, tuple)):
+                val = val[0]
+            try:
+                import pandas as _pd
+                if isinstance(val, _pd.Series):
+                    return float(val.iloc[0])
+            except Exception:
+                pass
+            return float(val)
 
-    cond_ma52 = (not require_ma52) or (float(curr['Close']) >= float(ma52_latest))
+        prev_open = _to_float(prev["Open"])
+        prev_close = _to_float(prev["Close"])
+        prev_high = _to_float(prev.get("High", prev_open))
+        prev_low = _to_float(prev.get("Low", prev_close))
+        curr_open = _to_float(curr["Open"])
+        curr_close = _to_float(curr["Close"])
+    except Exception:
+        print(f"{ticker}: ローソク足データが不十分")
+        return False
+
+    # bullish engulfing 判定:
+    # - 前の足が陰線 (prev_close < prev_open)
+    # - 今の足が陽線 (curr_close > curr_open)
+    # - 今の実体が前の実体を包んでいる: curr_open <= prev_close and curr_close >= prev_open
+    is_prev_bear = prev_close < prev_open
+    is_curr_bull = curr_close > curr_open
+    # bullish engulfing: current real body covers previous real body (allow touching)
+    engulfs = (curr_open <= prev_close) and (curr_close >= prev_open)
+    # additionally allow cases where current body's range covers previous full candle wicks
+    # (i.e. current body includes previous High..Low)
+    wick_engulf = (curr_open <= prev_low) and (curr_close >= prev_high)
+
+    # If relaxed_engulfing is True, allow cases where the current close >= previous open
+    # (this relaxes the strict real-body engulf requirement and catches cases like 2673.T)
+    if relaxed_engulfing:
+        cond_engulf = (not require_engulfing) or (is_prev_bear and is_curr_bull and (engulfs or wick_engulf or (curr_close >= prev_open)))
+    else:
+        cond_engulf = (not require_engulfing) or (is_prev_bear and is_curr_bull and (engulfs or wick_engulf))
+    cond_ma52 = (not require_ma52) or (curr_close >= ma52_latest)
 
     if cond_engulf and cond_ma52:
         msg_parts = []
         if require_engulfing:
             msg_parts.append("陽線包み足")
         if require_ma52:
-            msg_parts.append(f"MA52以上 (price={float(curr['Close']):.2f} MA52={ma52_latest:.2f})")
+            msg_parts.append(f"MA52以上 (price={curr_close:.2f} MA52={ma52_latest:.2f})")
         detail = " & ".join(msg_parts) if msg_parts else "条件なし"
         print(f"{ticker}: シグナル検出 ({detail})")
         return True
 
+    # 条件未達
     return False
 
 
