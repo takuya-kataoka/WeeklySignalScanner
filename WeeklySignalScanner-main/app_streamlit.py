@@ -195,6 +195,8 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
 
     # 包み足判定を緩和するか（チェック時のみ緩和） - スキャンボタン近くに配置
     relax_engulfing = st.checkbox('包み足判定を緩和する（チェック時のみ有効）', value=False)
+    # MA条件を無視して抽出するか（チェック時は MA 条件を外す）
+    ignore_ma52 = st.checkbox('MA条件を無視して抽出する（MA52 条件を無視）', value=False)
 
     # 抽出モード選択: 最新 / 単一日指定（as-of）
     extract_mode = st.selectbox('抽出モード', ['最新版（最新キャッシュ）', '単一日指定'], index=0)
@@ -210,9 +212,9 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
             try:
                 # call scan_all_jp_batch with as-of date if provided
                 if extract_mode == '単一日指定' and as_of_date:
-                    scan_all_jp_batch.main(relaxed_engulfing=relax_engulfing, end_date=str(as_of_date))
+                    scan_all_jp_batch.main(relaxed_engulfing=relax_engulfing, end_date=str(as_of_date), require_ma52=(not ignore_ma52))
                 else:
-                    scan_all_jp_batch.main(relaxed_engulfing=relax_engulfing)
+                    scan_all_jp_batch.main(relaxed_engulfing=relax_engulfing, require_ma52=(not ignore_ma52))
                 st.success('スキャン完了: outputs/results を確認してください')
                 # Streamlit Cloud 上でスキャン結果をリポジトリにコミットしてプッシュする処理
                 try:

@@ -60,7 +60,7 @@ def scan_range(start, end, output_file, base_dir: Path):
     return len(results)
 
 
-def main(relaxed_engulfing=False, end_date=None):
+def main(relaxed_engulfing=False, end_date=None, require_ma52=True):
     print("=" * 70)
     print("日本株全銘柄スキャン（1300-9999）")
     print("条件: 週足MA52以上 & 陽線包み足")
@@ -145,7 +145,7 @@ def main(relaxed_engulfing=False, end_date=None):
                     period='2y',
                     interval='1wk',
                     threshold=0.0,
-                    require_ma52=True,
+                    require_ma52=require_ma52,
                     require_engulfing=True,
                     relaxed_engulfing=relaxed_engulfing,
                     end_date=end_date,
