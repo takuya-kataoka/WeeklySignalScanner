@@ -302,7 +302,181 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                         except Exception as e:
                             st.sidebar.error(f'git push 実行中に例外: {e}')
                 except Exception as e:
-                    st.sidebar.error(f'自動コミット中に例外が発生しました: {e}')
+                        st.sidebar.error(f'自動コミット中に例外が発生しました: {e}')
+
+                # --- 新機能: 月足 MA9/MA24 ゴールデンクロス抽出 ---
+                st.markdown('### 月足: MA9 / MA24 ゴールデンクロス抽出')
+                gc_within_months = st.number_input('何か月以内のゴールデンクロスを抽出するか（0=指定なし）', min_value=0, max_value=60, value=0, step=1)
+                gc_cache_only = st.checkbox('キャッシュのみで判定（data/*.parquet のみ）', value=True)
+                if st.button('月足: MA9/MA24 ゴールデンクロス抽出'):
+                    import config, datetime
+                    from pathlib import Path
+                    from data_fetcher import load_ticker_from_cache
+                    import pandas as _pd
+
+                    data_cache_dir = base_dir.parent / 'data'
+                    cached_files = sorted([p.stem for p in data_cache_dir.glob('*.parquet')]) if data_cache_dir.exists() else []
+                    try:
+                        if gc_cache_only and cached_files:
+                            tickers = cached_files
+                        else:
+                            # fall back to scanning all known tickers in data or full range
+                            tickers = cached_files if cached_files else [f"{i:04d}.T" for i in range(1300, 10000)]
+                    except Exception:
+                        tickers = cached_files if cached_files else [f"{i:04d}.T" for i in range(1300, 10000)]
+
+                    st.sidebar.info(f'GC: cache_count={len(cached_files)}  scan_target_count={len(tickers)}')
+
+                    gc_results = []
+                    with st.spinner(f'Monthly MA9/MA24 ゴールデンクロスをチェック中... {len(tickers)} 銘柄'):
+                        for t in tickers:
+                            try:
+                                # prefer cache
+                                df = None
+                                try:
+                                    df = load_ticker_from_cache(t, cache_dir=str(data_cache_dir))
+                                except Exception:
+                                    df = None
+
+                                if df is None:
+                                    # fetch monthly via yfinance
+                                    mdf = yf.Ticker(t).history(period='5y', interval='1mo')
+                                else:
+                                    # ensure DatetimeIndex and resample to monthly
+                                    if not isinstance(df.index, _pd.DatetimeIndex):
+                                        df.index = _pd.to_datetime(df.index)
+                                    mdf = df.resample('M').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'})
+
+                                if mdf is None or mdf.empty or len(mdf) < 2:
+                                    continue
+
+                                mdf = mdf.dropna(subset=['Close'])
+                                if mdf.empty or len(mdf) < 2:
+                                    continue
+
+                                closes = mdf['Close'].astype(float)
+                                ma9 = closes.rolling(window=9).mean()
+                                ma24 = closes.rolling(window=24).mean()
+                                # find golden cross points where prev ma9 <= prev ma24 and curr ma9 > curr ma24
+                                crosses = []
+                                for i in range(1, len(mdf)):
+                                    if _pd.isna(ma9.iat[i-1]) or _pd.isna(ma24.iat[i-1]) or _pd.isna(ma9.iat[i]) or _pd.isna(ma24.iat[i]):
+                                        continue
+                                    prev9 = float(ma9.iat[i-1]); prev24 = float(ma24.iat[i-1])
+                                    curr9 = float(ma9.iat[i]); curr24 = float(ma24.iat[i])
+                                    if prev9 <= prev24 and curr9 > curr24:
+                                        crosses.append(i)
+
+                                if not crosses:
+                                    continue
+
+                                # last cross
+                                last_idx = crosses[-1]
+                                last_cross_date = mdf.index[last_idx]
+                                if gc_within_months and gc_within_months > 0:
+                                    last_ts = mdf.index.max()
+                                    start_ts = last_ts - _pd.DateOffset(months=int(gc_within_months))
+                                    if last_cross_date < start_ts:
+                                        continue
+
+                                # record result
+                                gc_results.append({
+                                    'ticker': t,
+                                    'cross_month': last_cross_date.strftime('%Y-%m'),
+                                    'ma9': round(float(ma9.iat[last_idx]), 2) if not _pd.isna(ma9.iat[last_idx]) else None,
+                                    'ma24': round(float(ma24.iat[last_idx]), 2) if not _pd.isna(ma24.iat[last_idx]) else None,
+                                    'latest_close': round(float(closes.iat[-1]), 2),
+                                })
+                            except Exception:
+                                continue
+
+                    # save CSV
+                    os.makedirs(results_dir, exist_ok=True)
+                    saved_paths = []
+                    if gc_results:
+                        base_name = Path(config.jp_filename('月足_MA9_MA24_GoldenCross')).name
+                        stem = Path(base_name).stem
+                        ext = Path(base_name).suffix or '.csv'
+                        if gc_within_months and gc_within_months > 0:
+                            stem = f"{stem}_within{int(gc_within_months)}m"
+                        ts = datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+                        out_name = f"{stem}_{ts}{ext}"
+                        out_path = results_dir / out_name
+                        import csv
+                        with open(out_path, 'w', newline='', encoding='utf-8') as f:
+                            writer = csv.DictWriter(f, fieldnames=['ticker', 'cross_month', 'ma9', 'ma24', 'latest_close'])
+                            writer.writeheader()
+                            writer.writerows(gc_results)
+                        saved_paths.append(str(out_path))
+                        st.success(f'MA9/MA24 ゴールデンクロス検出結果を保存: {out_path}')
+
+                        # auto-commit same as other blocks
+                        try:
+                            import subprocess
+                            repo_root = base_dir.parent
+                            subprocess.run(['git', '-C', str(repo_root), 'config', 'user.email', 'streamlit@example.com'], check=False)
+                            subprocess.run(['git', '-C', str(repo_root), 'config', 'user.name', 'StreamlitAutoCommit'], check=False)
+
+                            added_any = False
+                            for p in sorted(Path(results_dir).rglob('*')):
+                                if p.is_file():
+                                    relp = os.path.relpath(str(p), start=str(repo_root))
+                                    add_proc = subprocess.run(['git', '-C', str(repo_root), 'add', '-f', relp], capture_output=True, text=True)
+                                    st.sidebar.info(f'git add {relp} -> returncode={add_proc.returncode}')
+                                    if add_proc.returncode == 0:
+                                        added_any = True
+
+                            if added_any:
+                                try:
+                                    bump_script = repo_root / 'scripts' / 'bump_version.py'
+                                    if bump_script.exists():
+                                        subprocess.run(['python3', str(bump_script)], check=False)
+                                        subprocess.run(['git', '-C', str(repo_root), 'add', 'VERSION'], check=False)
+                                except Exception:
+                                    pass
+
+                                version_str = ''
+                                try:
+                                    vpath = repo_root / 'VERSION'
+                                    if vpath.exists():
+                                        version_str = vpath.read_text(encoding='utf-8').strip()
+                                except Exception:
+                                    version_str = ''
+
+                                commit_msg = f"chore(monthly_gc): add monthly MA9/MA24 GC{' within'+str(gc_within_months)+'m' if gc_within_months else ''}{' ver'+version_str if version_str else ''} {datetime.datetime.utcnow().isoformat()}"
+                                commit_proc = subprocess.run(['git', '-C', str(repo_root), 'commit', '-m', commit_msg], capture_output=True, text=True)
+                                st.sidebar.info(f'git commit returncode={commit_proc.returncode}\nstdout:{commit_proc.stdout}\nstderr:{commit_proc.stderr}')
+                                if commit_proc.returncode == 0:
+                                    try:
+                                        token = os.environ.get('GITHUB_TOKEN')
+                                        try:
+                                            if not token:
+                                                token = st.secrets.get('GITHUB_TOKEN') if hasattr(st, 'secrets') and 'GITHUB_TOKEN' in st.secrets else None
+                                        except Exception:
+                                            pass
+
+                                        if token:
+                                            rem = subprocess.run(['git', '-C', str(repo_root), 'remote', 'get-url', 'origin'], capture_output=True, text=True)
+                                            origin_url = rem.stdout.strip()
+                                            if origin_url.startswith('https://'):
+                                                auth_url = origin_url.replace('https://', f'https://{token}@')
+                                            else:
+                                                auth_url = origin_url
+                                            push_proc = subprocess.run(['git', '-C', str(repo_root), 'push', auth_url, 'main'], capture_output=True, text=True, timeout=120)
+                                        else:
+                                            push_proc = subprocess.run(['git', '-C', str(repo_root), 'push', 'origin', 'main'], capture_output=True, text=True, timeout=120)
+
+                                        st.sidebar.info(f'git push returncode={push_proc.returncode}\nstdout:{push_proc.stdout}\nstderr:{push_proc.stderr}')
+                                        if push_proc.returncode == 0:
+                                            st.sidebar.success('月足 GC 結果を origin/main にコミット＆プッシュしました')
+                                        else:
+                                            st.sidebar.error('git push に失敗しました。認証情報を確認してください。')
+                                    except Exception as e:
+                                        st.sidebar.error(f'git push 実行中に例外: {e}')
+                            else:
+                                st.sidebar.info('outputs/results 内にステージ可能なファイルが見つかりませんでした（.gitignore を確認してください）')
+                        except Exception as e:
+                            st.sidebar.error(f'自動コミット中に例外が発生しました: {e}')
             except Exception as e:
                 st.error(f'スキャン中にエラー: {e}')
 
