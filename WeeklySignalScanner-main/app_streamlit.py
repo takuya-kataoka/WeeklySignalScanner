@@ -246,7 +246,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                     else:
                         if not isinstance(df.index, _pd.DatetimeIndex):
                             df.index = _pd.to_datetime(df.index)
-                        mdf = df.resample('M').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'})
+                        mdf = df.resample('ME').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'})
 
                     if mdf is None or mdf.empty or len(mdf) < 2:
                         continue

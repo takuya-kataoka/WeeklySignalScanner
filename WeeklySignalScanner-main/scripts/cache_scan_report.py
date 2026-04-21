@@ -19,7 +19,7 @@ def analyze_parquet(p: Path):
         if not isinstance(df.index, pd.DatetimeIndex):
             df.index = pd.to_datetime(df.index)
         # monthly bars
-        m = df.resample('M').agg({'Open':'first','High':'max','Low':'min','Close':'last','Volume':'sum'})
+        m = df.resample('ME').agg({'Open':'first','High':'max','Low':'min','Close':'last','Volume':'sum'})
         valid_months = len(m.dropna(subset=['Close']))
         latest = None
         try:
