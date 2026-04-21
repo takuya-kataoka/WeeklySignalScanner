@@ -1092,20 +1092,22 @@ else:
             pass
         
         # チャート作成
-        # 月足ファイルから来ているか判定（ファイル名に '月足' が含まれる場合）
+        # 月足ファイルから来ているか判定（ファイル名または CSV に 'cross_month' カラムがあるかで判定）
         is_month_file = False
         try:
             sel_name = Path(str(selected_file)).name
-            if '月足' in sel_name:
+            if '月足' in sel_name or ('cross_month' in df.columns if isinstance(df, pd.DataFrame) else False):
                 is_month_file = True
         except Exception:
             is_month_file = False
+
+        title_main = f'{ticker} 月足チャート' if is_month_file else f'{ticker} 週足チャート'
         fig = make_subplots(
             rows=2, cols=1,
             shared_xaxes=True,
             vertical_spacing=0.03,
             row_heights=[0.7, 0.3],
-            subplot_titles=(f'{ticker} 週足チャート', '出来高')
+            subplot_titles=(title_main, '出来高')
         )
         
         # ローソク足
