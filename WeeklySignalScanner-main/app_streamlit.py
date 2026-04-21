@@ -323,6 +323,12 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                 pass
 
         if gc_results:
+            # sort by latest_close ascending
+            try:
+                gc_results = sorted(gc_results, key=lambda r: (r.get('latest_close') is None, r.get('latest_close', 0)))
+            except Exception:
+                pass
+
             base_name = Path(config.jp_filename('月足_MA9_MA24_GoldenCross')).name
             stem = Path(base_name).stem
             ext = Path(base_name).suffix or '.csv'
@@ -352,72 +358,77 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
         except Exception:
             pass
 
-            try:
-                import subprocess
-                repo_root = base_dir.parent
-                subprocess.run(['git', '-C', str(repo_root), 'config', 'user.email', 'streamlit@example.com'], check=False)
-                subprocess.run(['git', '-C', str(repo_root), 'config', 'user.name', 'StreamlitAutoCommit'], check=False)
+        # Always attempt to add/commit created result files so they survive a reboot
+        try:
+            import subprocess
+            repo_root = base_dir.parent
+            subprocess.run(['git', '-C', str(repo_root), 'config', 'user.email', 'streamlit@example.com'], check=False)
+            subprocess.run(['git', '-C', str(repo_root), 'config', 'user.name', 'StreamlitAutoCommit'], check=False)
 
-                added_any = False
-                for p in sorted(Path(results_dir).rglob('*')):
+            added_any = False
+            for pstr in saved_paths:
+                try:
+                    p = Path(pstr)
                     if p.is_file():
                         relp = os.path.relpath(str(p), start=str(repo_root))
                         add_proc = subprocess.run(['git', '-C', str(repo_root), 'add', '-f', relp], capture_output=True, text=True)
                         st.sidebar.info(f'git add {relp} -> returncode={add_proc.returncode}')
                         if add_proc.returncode == 0:
                             added_any = True
+                except Exception:
+                    continue
 
-                if added_any:
-                    try:
-                        bump_script = repo_root / 'scripts' / 'bump_version.py'
-                        if bump_script.exists():
-                            subprocess.run(['python3', str(bump_script)], check=False)
-                            subprocess.run(['git', '-C', str(repo_root), 'add', 'VERSION'], check=False)
-                    except Exception:
-                        pass
+            if added_any:
+                try:
+                    bump_script = repo_root / 'scripts' / 'bump_version.py'
+                    if bump_script.exists():
+                        subprocess.run(['python3', str(bump_script)], check=False)
+                        subprocess.run(['git', '-C', str(repo_root), 'add', 'VERSION'], check=False)
+                except Exception:
+                    pass
 
+                version_str = ''
+                try:
+                    vpath = repo_root / 'VERSION'
+                    if vpath.exists():
+                        version_str = vpath.read_text(encoding='utf-8').strip()
+                except Exception:
                     version_str = ''
+
+                commit_msg = f"chore(monthly_gc): add monthly MA9/MA24 GC{' within'+str(gc_within_months)+'m' if gc_within_months else ''}{' ver'+version_str if version_str else ''} {datetime.datetime.now(datetime.timezone.utc).isoformat()}"
+                commit_proc = subprocess.run(['git', '-C', str(repo_root), 'commit', '-m', commit_msg], capture_output=True, text=True)
+                st.sidebar.info(f'git commit returncode={commit_proc.returncode}\nstdout:{commit_proc.stdout}\nstderr:{commit_proc.stderr}')
+                if commit_proc.returncode == 0:
                     try:
-                        vpath = repo_root / 'VERSION'
-                        if vpath.exists():
-                            version_str = vpath.read_text(encoding='utf-8').strip()
-                    except Exception:
-                        version_str = ''
-
-                    commit_msg = f"chore(monthly_gc): add monthly MA9/MA24 GC{' within'+str(gc_within_months)+'m' if gc_within_months else ''}{' ver'+version_str if version_str else ''} {datetime.datetime.now(datetime.timezone.utc).isoformat()}"
-                    commit_proc = subprocess.run(['git', '-C', str(repo_root), 'commit', '-m', commit_msg], capture_output=True, text=True)
-                    st.sidebar.info(f'git commit returncode={commit_proc.returncode}\nstdout:{commit_proc.stdout}\nstderr:{commit_proc.stderr}')
-                    if commit_proc.returncode == 0:
+                        token = os.environ.get('GITHUB_TOKEN')
                         try:
-                            token = os.environ.get('GITHUB_TOKEN')
-                            try:
-                                if not token:
-                                    token = st.secrets.get('GITHUB_TOKEN') if hasattr(st, 'secrets') and 'GITHUB_TOKEN' in st.secrets else None
-                            except Exception:
-                                pass
+                            if not token:
+                                token = st.secrets.get('GITHUB_TOKEN') if hasattr(st, 'secrets') and 'GITHUB_TOKEN' in st.secrets else None
+                        except Exception:
+                            pass
 
-                            if token:
-                                rem = subprocess.run(['git', '-C', str(repo_root), 'remote', 'get-url', 'origin'], capture_output=True, text=True)
-                                origin_url = rem.stdout.strip()
-                                if origin_url.startswith('https://'):
-                                    auth_url = origin_url.replace('https://', f'https://{token}@')
-                                else:
-                                    auth_url = origin_url
-                                push_proc = subprocess.run(['git', '-C', str(repo_root), 'push', auth_url, 'main'], capture_output=True, text=True, timeout=120)
+                        if token:
+                            rem = subprocess.run(['git', '-C', str(repo_root), 'remote', 'get-url', 'origin'], capture_output=True, text=True)
+                            origin_url = rem.stdout.strip()
+                            if origin_url.startswith('https://'):
+                                auth_url = origin_url.replace('https://', f'https://{token}@')
                             else:
-                                push_proc = subprocess.run(['git', '-C', str(repo_root), 'push', 'origin', 'main'], capture_output=True, text=True, timeout=120)
+                                auth_url = origin_url
+                            push_proc = subprocess.run(['git', '-C', str(repo_root), 'push', auth_url, 'main'], capture_output=True, text=True, timeout=120)
+                        else:
+                            push_proc = subprocess.run(['git', '-C', str(repo_root), 'push', 'origin', 'main'], capture_output=True, text=True, timeout=120)
 
-                            st.sidebar.info(f'git push returncode={push_proc.returncode}\nstdout:{push_proc.stdout}\nstderr:{push_proc.stderr}')
-                            if push_proc.returncode == 0:
-                                st.sidebar.success('月足 GC 結果を origin/main にコミット＆プッシュしました')
-                            else:
-                                st.sidebar.error('git push に失敗しました。認証情報を確認してください。')
-                        except Exception as e:
-                            st.sidebar.error(f'git push 実行中に例外: {e}')
-                else:
-                    st.sidebar.info('outputs/results 内にステージ可能なファイルが見つかりませんでした（.gitignore を確認してください）')
-            except Exception as e:
-                st.sidebar.error(f'自動コミット中に例外が発生しました: {e}')
+                        st.sidebar.info(f'git push returncode={push_proc.returncode}\nstdout:{push_proc.stdout}\nstderr:{push_proc.stderr}')
+                        if push_proc.returncode == 0:
+                            st.sidebar.success('月足 GC 結果を origin/main にコミット＆プッシュしました')
+                        else:
+                            st.sidebar.error('git push に失敗しました。認証情報を確認してください。')
+                    except Exception as e:
+                        st.sidebar.error(f'git push 実行中に例外: {e}')
+            else:
+                st.sidebar.info('outputs/results 内にステージ可能なファイルが見つかりませんでした（.gitignore を確認してください）')
+        except Exception as e:
+            st.sidebar.error(f'自動コミット中に例外が発生しました: {e}')
 
     # 抽出モード選択: 最新 / 単一日指定（as-of）
     extract_mode = st.selectbox('抽出モード', ['最新版（最新キャッシュ）', '単一日指定'], index=0)
