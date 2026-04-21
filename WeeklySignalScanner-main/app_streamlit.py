@@ -312,7 +312,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
             st.sidebar.info(f'月足GC: エラー発生したティッカー例: {failed_tickers[:10]}')
             # write detailed error log for inspection
             try:
-                err_log = results_dir / f'monthly_gc_errors_{datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")}.log'
+                err_log = results_dir / f'monthly_gc_errors_{datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")}.log'
                 with open(err_log, 'w', encoding='utf-8') as ef:
                     for t, msg, tb in failed_details:
                         ef.write(f'--- {t} ---\n')
@@ -328,7 +328,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
             ext = Path(base_name).suffix or '.csv'
             if gc_within_months and gc_within_months > 0:
                 stem = f"{stem}_within{int(gc_within_months)}m"
-            ts = datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+            ts = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d_%H%M%S')
             out_name = f"{stem}_{ts}{ext}"
             out_path = results_dir / out_name
             import csv
@@ -343,7 +343,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
         try:
             if diag_rows:
                 import csv
-                diag_path = results_dir / f'monthly_gc_diag_{datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")}.csv'
+                diag_path = results_dir / f'monthly_gc_diag_{datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")}.csv'
                 with open(diag_path, 'w', newline='', encoding='utf-8') as dfh:
                     writer = csv.DictWriter(dfh, fieldnames=list(diag_rows[0].keys()))
                     writer.writeheader()
@@ -384,7 +384,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                     except Exception:
                         version_str = ''
 
-                    commit_msg = f"chore(monthly_gc): add monthly MA9/MA24 GC{' within'+str(gc_within_months)+'m' if gc_within_months else ''}{' ver'+version_str if version_str else ''} {datetime.datetime.utcnow().isoformat()}"
+                    commit_msg = f"chore(monthly_gc): add monthly MA9/MA24 GC{' within'+str(gc_within_months)+'m' if gc_within_months else ''}{' ver'+version_str if version_str else ''} {datetime.datetime.now(datetime.timezone.utc).isoformat()}"
                     commit_proc = subprocess.run(['git', '-C', str(repo_root), 'commit', '-m', commit_msg], capture_output=True, text=True)
                     st.sidebar.info(f'git commit returncode={commit_proc.returncode}\nstdout:{commit_proc.stdout}\nstderr:{commit_proc.stderr}')
                     if commit_proc.returncode == 0:
@@ -482,7 +482,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                     except Exception:
                         version_str = ''
 
-                    commit_msg = f"chore(scan): add scan results{' ver'+version_str if version_str else ''} {datetime.datetime.utcnow().isoformat()}"
+                    commit_msg = f"chore(scan): add scan results{' ver'+version_str if version_str else ''} {datetime.datetime.now(datetime.timezone.utc).isoformat()}"
                     commit_proc = subprocess.run(['git', '-C', str(repo_root), 'commit', '-m', commit_msg], capture_output=True, text=True)
                     st.sidebar.info(f'git commit returncode={commit_proc.returncode}\nstdout:{commit_proc.stdout}\nstderr:{commit_proc.stderr}')
                     if commit_proc.returncode != 0:
@@ -642,7 +642,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
             base_fname = Path(config.jp_filename(f'月足_陽線包み_within{months_within}m')).name
             stem = Path(base_fname).stem
             ext = Path(base_fname).suffix or '.csv'
-            ts = datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+            ts = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d_%H%M%S')
             new_name = f"{stem}_{ts}{ext}"
             out_path = results_dir / new_name
             import csv
@@ -687,7 +687,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                 except Exception:
                     version_str = ''
 
-                commit_msg = f"chore(monthly_scan): add monthly engulfing within {months_within}m{' ver'+version_str if version_str else ''} {datetime.datetime.utcnow().isoformat()}"
+                commit_msg = f"chore(monthly_scan): add monthly engulfing within {months_within}m{' ver'+version_str if version_str else ''} {datetime.datetime.now(datetime.timezone.utc).isoformat()}"
                 commit_proc = subprocess.run(['git', '-C', str(repo_root), 'commit', '-m', commit_msg], capture_output=True, text=True)
                 st.sidebar.info(f'git commit returncode={commit_proc.returncode}\nstdout:{commit_proc.stdout}\nstderr:{commit_proc.stderr}')
                 if commit_proc.returncode == 0:
@@ -772,7 +772,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                         except Exception:
                             version_str = ''
 
-                        commit_msg = f"chore(clean): remove results {','.join(removed)}{' ver'+version_str if version_str else ''} {datetime.datetime.utcnow().isoformat()}"
+                        commit_msg = f"chore(clean): remove results {','.join(removed)}{' ver'+version_str if version_str else ''} {datetime.datetime.now(datetime.timezone.utc).isoformat()}"
                         commit_proc = subprocess.run(['git', '-C', str(repo_root), 'commit', '-m', commit_msg], capture_output=True, text=True)
                         st.sidebar.info(f'git commit returncode={commit_proc.returncode}\nstdout:{commit_proc.stdout}\nstderr:{commit_proc.stderr}')
                         # Push (use token if available)
