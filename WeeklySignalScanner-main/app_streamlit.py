@@ -214,6 +214,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
         found_count = 0
         error_count = 0
         failed_tickers = []
+        failed_details = []
 
         data_cache_dir = base_dir.parent / 'data'
         cached_files = sorted([p.stem for p in data_cache_dir.glob('*.parquet')]) if data_cache_dir.exists() else []
@@ -285,9 +286,15 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                         'latest_close': round(float(closes.iat[-1]), 2),
                     })
                     found_count += 1
-                except Exception:
+                except Exception as e:
+                    import traceback
                     error_count += 1
                     failed_tickers.append(t)
+                    tb = traceback.format_exc()
+                    failed_details.append((t, str(e), tb))
+                    # show some error samples inline for fast diagnosis
+                    if len(failed_details) <= 10:
+                        st.sidebar.info(f'月足GC: {t} エラー: {e}')
                     continue
 
         os.makedirs(results_dir, exist_ok=True)
@@ -296,6 +303,17 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
         st.sidebar.info(f'月足GC: 処理終了 processed={processed} found={found_count} errors={error_count}')
         if error_count:
             st.sidebar.info(f'月足GC: エラー発生したティッカー例: {failed_tickers[:10]}')
+            # write detailed error log for inspection
+            try:
+                err_log = results_dir / f'monthly_gc_errors_{datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")}.log'
+                with open(err_log, 'w', encoding='utf-8') as ef:
+                    for t, msg, tb in failed_details:
+                        ef.write(f'--- {t} ---\n')
+                        ef.write(msg + '\n')
+                        ef.write(tb + '\n')
+                st.sidebar.info(f'月足GC: 詳細エラーログを書きました: {err_log}')
+            except Exception:
+                pass
 
         if gc_results:
             base_name = Path(config.jp_filename('月足_MA9_MA24_GoldenCross')).name
