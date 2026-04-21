@@ -986,7 +986,17 @@ if display_mode == "10銘柄一覧":
                         st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}")
                         mfig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.75, 0.25])
                         mfig.add_trace(go.Candlestick(x=month_data.index, open=month_data['Open'], high=month_data['High'], low=month_data['Low'], close=month_data['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue', showlegend=False), row=1, col=1)
-                        mfig.add_trace(go.Scatter(x=month_data.index, y=month_data['Close'].rolling(12).mean(), name='MA12', line=dict(color='orange', width=1), showlegend=False), row=1, col=1)
+                        # 月足の移動平均表示: ファイル名に MA9/MA24 を含む出力なら MA9/MA24 を、そうでなければ MA12 を表示
+                        try:
+                            if 'MA9' in sel_name or 'MA9_MA24' in sel_name or 'GoldenCross' in sel_name:
+                                ma9_mon = month_data['Close'].rolling(window=9).mean()
+                                ma24_mon = month_data['Close'].rolling(window=24).mean()
+                                mfig.add_trace(go.Scatter(x=month_data.index, y=ma9_mon, name='MA9(months)', line=dict(color='green', width=1.5), showlegend=True), row=1, col=1)
+                                mfig.add_trace(go.Scatter(x=month_data.index, y=ma24_mon, name='MA24(months)', line=dict(color='purple', width=1.5), showlegend=True), row=1, col=1)
+                            else:
+                                mfig.add_trace(go.Scatter(x=month_data.index, y=month_data['Close'].rolling(12).mean(), name='MA12', line=dict(color='orange', width=1), showlegend=False), row=1, col=1)
+                        except Exception:
+                            mfig.add_trace(go.Scatter(x=month_data.index, y=month_data['Close'].rolling(12).mean(), name='MA12', line=dict(color='orange', width=1), showlegend=False), row=1, col=1)
                         mcolors = ['red' if month_data['Close'].iloc[k] >= month_data['Open'].iloc[k] else 'blue' for k in range(len(month_data))]
                         mfig.add_trace(go.Bar(x=month_data.index, y=month_data['Volume'], marker_color=mcolors, showlegend=False), row=2, col=1)
                         mfig.update_layout(height=300, margin=dict(l=30, r=10, t=20, b=20), xaxis_rangeslider_visible=False, hovermode='x unified', template='plotly_white', font=dict(size=8))
@@ -1152,7 +1162,17 @@ else:
                 # 月足チャート作成（メイン）
                 mfig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3], subplot_titles=(f'{ticker} 月足チャート', '出来高'))
                 mfig.add_trace(go.Candlestick(x=month_data.index, open=month_data['Open'], high=month_data['High'], low=month_data['Low'], close=month_data['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue'), row=1, col=1)
-                mfig.add_trace(go.Scatter(x=month_data.index, y=month_data['Close'].rolling(12).mean(), name='MA12(months)', line=dict(color='orange', width=2)), row=1, col=1)
+                # 単一表示側の月足も同様に MA9/MA24 を優先表示
+                try:
+                    if 'MA9' in sel_name or 'MA9_MA24' in sel_name or 'GoldenCross' in sel_name:
+                        ma9_mon = month_data['Close'].rolling(window=9).mean()
+                        ma24_mon = month_data['Close'].rolling(window=24).mean()
+                        mfig.add_trace(go.Scatter(x=month_data.index, y=ma9_mon, name='MA9(months)', line=dict(color='green', width=2)), row=1, col=1)
+                        mfig.add_trace(go.Scatter(x=month_data.index, y=ma24_mon, name='MA24(months)', line=dict(color='purple', width=2)), row=1, col=1)
+                    else:
+                        mfig.add_trace(go.Scatter(x=month_data.index, y=month_data['Close'].rolling(12).mean(), name='MA12(months)', line=dict(color='orange', width=2)), row=1, col=1)
+                except Exception:
+                    mfig.add_trace(go.Scatter(x=month_data.index, y=month_data['Close'].rolling(12).mean(), name='MA12(months)', line=dict(color='orange', width=2)), row=1, col=1)
                 mcolors = ['red' if month_data['Close'].iloc[i] >= month_data['Open'].iloc[i] else 'blue' for i in range(len(month_data))]
                 mfig.add_trace(go.Bar(x=month_data.index, y=month_data['Volume'], name='出来高', marker_color=mcolors, showlegend=False), row=2, col=1)
                 mfig.update_layout(height=600, xaxis_rangeslider_visible=False, hovermode='x unified', template='plotly_white', showlegend=True)
