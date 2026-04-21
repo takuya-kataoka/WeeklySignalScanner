@@ -208,6 +208,13 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
         from data_fetcher import load_ticker_from_cache
         import pandas as _pd
 
+        # Debug counters / logging
+        st.sidebar.info('月足GC: ボタン押下 — 実行開始')
+        processed = 0
+        found_count = 0
+        error_count = 0
+        failed_tickers = []
+
         data_cache_dir = base_dir.parent / 'data'
         cached_files = sorted([p.stem for p in data_cache_dir.glob('*.parquet')]) if data_cache_dir.exists() else []
         try:
@@ -223,6 +230,9 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
         gc_results = []
         with st.spinner(f'Monthly MA9/MA24 ゴールデンクロスをチェック中... {len(tickers)} 銘柄'):
             for t in tickers:
+                processed += 1
+                if processed % 200 == 0:
+                    st.sidebar.info(f'月足GC: 処理中 {processed}/{len(tickers)}')
                 try:
                     df = None
                     try:
@@ -274,11 +284,19 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                         'ma24': round(float(ma24.iat[last_idx]), 2) if not _pd.isna(ma24.iat[last_idx]) else None,
                         'latest_close': round(float(closes.iat[-1]), 2),
                     })
+                    found_count += 1
                 except Exception:
+                    error_count += 1
+                    failed_tickers.append(t)
                     continue
 
         os.makedirs(results_dir, exist_ok=True)
         saved_paths = []
+        # summary
+        st.sidebar.info(f'月足GC: 処理終了 processed={processed} found={found_count} errors={error_count}')
+        if error_count:
+            st.sidebar.info(f'月足GC: エラー発生したティッカー例: {failed_tickers[:10]}')
+
         if gc_results:
             base_name = Path(config.jp_filename('月足_MA9_MA24_GoldenCross')).name
             stem = Path(base_name).stem
