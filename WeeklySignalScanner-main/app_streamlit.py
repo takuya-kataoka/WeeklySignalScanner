@@ -230,7 +230,10 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
 
         gc_results = []
         with st.spinner(f'Monthly MA9/MA24 ゴールデンクロスをチェック中... {len(tickers)} 銘柄'):
-            for t in tickers:
+            diag_rows = []
+            for idx, t in enumerate(tickers):
+                # collect diagnostics for first 200 tickers
+                collect_diag = (idx < 200)
                 processed += 1
                 if processed % 200 == 0:
                     st.sidebar.info(f'月足GC: 処理中 {processed}/{len(tickers)}')
@@ -268,6 +271,8 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                             crosses.append(i)
 
                     if not crosses:
+                        if collect_diag:
+                            diag_rows.append({'ticker': t, 'mdf_len': len(mdf), 'ma9_non_na': int(ma9.count()), 'ma24_non_na': int(ma24.count()), 'crosses': 0})
                         continue
 
                     last_idx = crosses[-1]
@@ -286,6 +291,8 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                         'latest_close': round(float(closes.iat[-1]), 2),
                     })
                     found_count += 1
+                    if collect_diag:
+                        diag_rows.append({'ticker': t, 'mdf_len': len(mdf), 'ma9_non_na': int(ma9.count()), 'ma24_non_na': int(ma24.count()), 'crosses': len(crosses), 'last_cross': last_cross_date.strftime('%Y-%m')})
                 except Exception as e:
                     import traceback
                     error_count += 1
@@ -331,6 +338,19 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                 writer.writerows(gc_results)
             saved_paths.append(str(out_path))
             st.success(f'MA9/MA24 ゴールデンクロス検出結果を保存: {out_path}')
+
+        # write diagnostics CSV for inspection
+        try:
+            if diag_rows:
+                import csv
+                diag_path = results_dir / f'monthly_gc_diag_{datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")}.csv'
+                with open(diag_path, 'w', newline='', encoding='utf-8') as dfh:
+                    writer = csv.DictWriter(dfh, fieldnames=list(diag_rows[0].keys()))
+                    writer.writeheader()
+                    writer.writerows(diag_rows)
+                st.sidebar.info(f'月足GC: 診断CSVを書きました: {diag_path}')
+        except Exception:
+            pass
 
             try:
                 import subprocess
