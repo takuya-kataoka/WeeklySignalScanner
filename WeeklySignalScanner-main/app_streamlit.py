@@ -923,11 +923,12 @@ if 'ticker' not in df.columns:
 
 ticker_list = df['ticker'].tolist()
 
-# 選択ファイルが月足ファイルかどうかを先に判定（一覧表示でも月足を表示するため）
+# 選択ファイルが月足ファイルかどうかを判定（ファイル名またはカラムで判定）
 is_month_file = False
 try:
     sel_name = Path(str(selected_file)).name
-    if '月足' in sel_name:
+    # ファイル名に '月足' が含まれるか、CSV に 'cross_month' カラムがあれば月足系出力とみなす
+    if '月足' in sel_name or ('cross_month' in df.columns if isinstance(df, pd.DataFrame) else False):
         is_month_file = True
 except Exception:
     is_month_file = False
