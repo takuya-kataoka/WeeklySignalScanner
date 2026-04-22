@@ -343,18 +343,20 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                 writer.writeheader()
                 writer.writerows(gc_results)
             saved_paths.append(str(out_path))
-            st.success(f'MA9/MA24 ゴールデンクロス検出結果を保存: {out_path}')
+            st.success(f'MA9/MA24 ゴールデンクロス検出結果を保存: {out_path} （件数: {len(gc_results)}）')
 
-        # write diagnostics CSV for inspection
+        # write diagnostics CSV for inspection (put diagnostics into diagnostics/ to avoid confusion)
         try:
             if diag_rows:
                 import csv
-                diag_path = results_dir / f'monthly_gc_diag_{datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")}.csv'
+                diag_dir = results_dir / 'diagnostics'
+                diag_dir.mkdir(parents=True, exist_ok=True)
+                diag_path = diag_dir / f'monthly_gc_diag_{datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")}.csv'
                 with open(diag_path, 'w', newline='', encoding='utf-8') as dfh:
                     writer = csv.DictWriter(dfh, fieldnames=list(diag_rows[0].keys()))
                     writer.writeheader()
                     writer.writerows(diag_rows)
-                st.sidebar.info(f'月足GC: 診断CSVを書きました: {diag_path}')
+                st.sidebar.info(f'月足GC: 診断CSVを書きました: {diag_path} （診断ファイルは results/diagnostics/ に移動しました）')
         except Exception:
             pass
 
