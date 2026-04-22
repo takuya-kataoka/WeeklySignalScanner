@@ -244,12 +244,27 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                     except Exception:
                         df = None
 
+                    fetched_ext = False
                     if df is None:
                         mdf = yf.Ticker(t).history(period='5y', interval='1mo')
                     else:
                         if not isinstance(df.index, _pd.DatetimeIndex):
                             df.index = _pd.to_datetime(df.index)
+                        df = df.sort_index()
                         mdf = df.resample('ME').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'})
+
+                    # If monthly series is too short for MA24, try fetching extended monthly history from yfinance
+                    try:
+                        if mdf is None or len(mdf) < 24:
+                            ext = yf.Ticker(t).history(period='10y', interval='1mo')
+                            if ext is not None and not ext.empty and len(ext) > (len(mdf) if mdf is not None else 0):
+                                mdf = ext
+                                fetched_ext = True
+                                if not isinstance(mdf.index, _pd.DatetimeIndex):
+                                    mdf.index = _pd.to_datetime(mdf.index)
+                                mdf = mdf.sort_index()
+                    except Exception:
+                        pass
 
                     if mdf is None or mdf.empty or len(mdf) < 2:
                         continue
