@@ -920,11 +920,13 @@ for p in candidates:
         continue
 
 # 価格でソート（結果ファイルに price 列または別途作成した price_map がある場合）
-# 月足出力では 'latest_price' を出力するためそれを優先して昇順ソートする
+# 月足出力では 'latest_price' または 'latest_close' を出力するためそれらを優先して昇順ソートする
 if 'price' in df.columns:
     df = df.sort_values('price').reset_index(drop=True)
 elif 'latest_price' in df.columns:
     df = df.sort_values('latest_price').reset_index(drop=True)
+elif 'latest_close' in df.columns:
+    df = df.sort_values('latest_close').reset_index(drop=True)
 elif price_map:
     # マップに基づいて price 列を作りソート
     df = df.copy()
