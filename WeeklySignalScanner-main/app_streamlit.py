@@ -1181,7 +1181,50 @@ if display_mode == "10銘柄一覧":
                         latest_close = price_map.get(str(ticker)) if price_map else None
                         if latest_close is None:
                             latest_close = month_data['Close'].iloc[-1]
-                        st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}")
+                        # try to prefer metrics from loaded results CSV
+                        change_pct_display = None
+                        volume_ratio_display = None
+                        try:
+                            if 'ticker' in df.columns:
+                                matches = df[df['ticker'].astype(str) == str(ticker)]
+                                if len(matches) > 0:
+                                    row = matches.iloc[-1]
+                                    for k in ('前日比(%)','前日比','price_change_pct','change_pct'):
+                                        if k in row.index:
+                                            try:
+                                                change_pct_display = float(row[k])
+                                                break
+                                            except Exception:
+                                                pass
+                                    for k in ('出来高倍率','volume_ratio','出来高比','vol_ratio'):
+                                        if k in row.index:
+                                            try:
+                                                volume_ratio_display = float(row[k])
+                                                break
+                                            except Exception:
+                                                pass
+                        except Exception:
+                            pass
+
+                        # fallback: compute from month_data
+                        if change_pct_display is None:
+                            try:
+                                prev_close = float(month_data['Close'].iloc[-2])
+                                change_pct_display = (latest_close - prev_close) / prev_close * 100.0 if prev_close != 0 else 0.0
+                            except Exception:
+                                change_pct_display = 0.0
+                        if volume_ratio_display is None:
+                            try:
+                                vols = month_data['Volume'].astype(float)
+                                if len(vols) >= 2:
+                                    avg_vol = float(vols.iloc[:-1].tail(20).mean()) if len(vols) > 1 else 0.0
+                                else:
+                                    avg_vol = 0.0
+                                volume_ratio_display = (float(month_data['Volume'].iloc[-1]) / avg_vol) if avg_vol > 0 else 0.0
+                            except Exception:
+                                volume_ratio_display = 0.0
+
+                        st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}  —  前日比: {change_pct_display:+.2f}% · 出来高倍率: {volume_ratio_display:.2f}x")
                         mfig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.75, 0.25])
                         mfig.add_trace(go.Candlestick(x=month_data.index, open=month_data['Open'], high=month_data['High'], low=month_data['Low'], close=month_data['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue', showlegend=False), row=1, col=1)
                         # 月足の移動平均表示: ファイル名に MA9/MA24 を含む出力なら MA9/MA24 を、そうでなければ MA12 を表示
@@ -1212,7 +1255,50 @@ if display_mode == "10銘柄一覧":
                         latest_close = price_map.get(str(ticker)) if price_map else None
                         if latest_close is None:
                             latest_close = data['Close'].iloc[-1]
-                        st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}")
+                        # try to prefer metrics from loaded results CSV
+                        change_pct_display = None
+                        volume_ratio_display = None
+                        try:
+                            if 'ticker' in df.columns:
+                                matches = df[df['ticker'].astype(str) == str(ticker)]
+                                if len(matches) > 0:
+                                    row = matches.iloc[-1]
+                                    for k in ('前日比(%)','前日比','price_change_pct','change_pct'):
+                                        if k in row.index:
+                                            try:
+                                                change_pct_display = float(row[k])
+                                                break
+                                            except Exception:
+                                                pass
+                                    for k in ('出来高倍率','volume_ratio','出来高比','vol_ratio'):
+                                        if k in row.index:
+                                            try:
+                                                volume_ratio_display = float(row[k])
+                                                break
+                                            except Exception:
+                                                pass
+                        except Exception:
+                            pass
+
+                        # fallback: compute from weekly data
+                        if change_pct_display is None:
+                            try:
+                                prev_close = float(data['Close'].iloc[-2])
+                                change_pct_display = (latest_close - prev_close) / prev_close * 100.0 if prev_close != 0 else 0.0
+                            except Exception:
+                                change_pct_display = 0.0
+                        if volume_ratio_display is None:
+                            try:
+                                vols = data['Volume'].astype(float)
+                                if len(vols) >= 2:
+                                    avg_vol = float(vols.iloc[:-1].tail(20).mean()) if len(vols) > 1 else 0.0
+                                else:
+                                    avg_vol = 0.0
+                                volume_ratio_display = (float(data['Volume'].iloc[-1]) / avg_vol) if avg_vol > 0 else 0.0
+                            except Exception:
+                                volume_ratio_display = 0.0
+
+                        st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}  —  前日比: {change_pct_display:+.2f}% · 出来高倍率: {volume_ratio_display:.2f}x")
                         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.75, 0.25])
                         fig.add_trace(go.Candlestick(x=data.index, open=data['Open'], high=data['High'], low=data['Low'], close=data['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue', showlegend=False), row=1, col=1)
                         fig.add_trace(go.Scatter(x=data.index, y=data['Close'].rolling(52).mean(), name='MA52', line=dict(color='orange', width=1), showlegend=False), row=1, col=1)
