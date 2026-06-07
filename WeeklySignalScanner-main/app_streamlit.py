@@ -1069,11 +1069,14 @@ elif 'latest_price' in df.columns:
     df = df.sort_values('latest_price').reset_index(drop=True)
 elif 'latest_close' in df.columns:
     df = df.sort_values('latest_close').reset_index(drop=True)
-elif price_map:
+elif price_map and 'ticker' in df.columns:
     # マップに基づいて price 列を作りソート
     df = df.copy()
     df['price'] = df['ticker'].astype(str).map(price_map)
     df = df.sort_values('price').reset_index(drop=True)
+elif price_map:
+    # price_map は見つかったが DataFrame に 'ticker' 列がない場合はマッピングをスキップ
+    pass
 
 st.sidebar.metric("検出銘柄数", len(df))
 
