@@ -1246,7 +1246,58 @@ else:
             latest_close = data['Close'].iloc[-1]
         latest_volume = data['Volume'].iloc[-1]
         ma52 = data['Close'].rolling(52).mean().iloc[-1]
-        change_pct = ((latest_close - data['Close'].iloc[-2]) / data['Close'].iloc[-2] * 100) if len(data) > 1 else 0
+
+        # 優先: 選択中の結果ファイルに検出時のメトリクスが含まれている場合はそれを表示
+        row_from_df = None
+        try:
+            # df は読み込んだ結果ファイルの DataFrame
+            if 'ticker' in df.columns:
+                matches = df[df['ticker'].astype(str) == str(ticker)]
+                if len(matches) > 0:
+                    # 直近の行を優先
+                    row_from_df = matches.iloc[-1]
+        except Exception:
+            row_from_df = None
+
+        # 表示用の change_pct / volume_ratio を決定（ファイル優先、無ければライブ計算）
+        change_pct = None
+        volume_ratio = None
+        if row_from_df is not None:
+            # 多言語・多列名に対応して取得を試みる
+            for k in ('前日比(%)', '前日比', 'price_change_pct', 'change_pct'):
+                if k in row_from_df.index:
+                    try:
+                        change_pct = float(row_from_df[k])
+                        break
+                    except Exception:
+                        pass
+            for k in ('出来高倍率', 'volume_ratio', '出来高比', 'vol_ratio'):
+                if k in row_from_df.index:
+                    try:
+                        volume_ratio = float(row_from_df[k])
+                        break
+                    except Exception:
+                        pass
+            # 本日終値があれば表示用 price を上書き
+            for k in ('本日終値', 'latest_price', 'latest_close', 'price'):
+                if k in row_from_df.index:
+                    try:
+                        latest_close = float(row_from_df[k])
+                        break
+                    except Exception:
+                        pass
+
+        # fallback: ライブデータから算出
+        if change_pct is None:
+            change_pct = ((latest_close - data['Close'].iloc[-2]) / data['Close'].iloc[-2] * 100) if len(data) > 1 else 0
+        if volume_ratio is None:
+            # 平均20日ボリュームを算出（直近を除く）
+            vols = data['Volume'].astype(float)
+            if len(vols) >= 21:
+                avg_vol_20 = float(vols.iloc[-21:-1].mean())
+            else:
+                avg_vol_20 = float(vols.iloc[:-1].mean()) if len(vols) > 1 else 0.0
+            volume_ratio = (float(data['Volume'].iloc[-1]) / avg_vol_20) if avg_vol_20 > 0 else 0.0
         
         with col1:
             st.metric("銘柄", ticker)
