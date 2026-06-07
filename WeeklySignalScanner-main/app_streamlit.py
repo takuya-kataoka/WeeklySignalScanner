@@ -1012,6 +1012,28 @@ def read_maybe_timestampped_csv(path):
 
 df = read_maybe_timestampped_csv(selected_file)
 
+# 正規化: 読み込んだ CSV に `ticker` 列が無い場合、既知の代替列名を探して `ticker` を作成する
+try:
+    if 'ticker' not in df.columns:
+        candidate = None
+        for col in df.columns:
+            name = str(col).strip()
+            low = name.lower()
+            # 日本語/英語の候補を含めて判定
+            if name == 'コード' or 'コード' in name or '銘柄' in name:
+                candidate = col
+                break
+            if low in ('ticker', 'symbol', 'code') or 'ticker' in low or 'symbol' in low or 'code' in low:
+                candidate = col
+                break
+        if candidate is not None:
+            try:
+                df['ticker'] = df[candidate].astype(str)
+            except Exception:
+                df['ticker'] = df[candidate].apply(lambda x: str(x))
+except Exception:
+    pass
+
 # 表示: 結果ファイルと data ディレクトリの最終更新時刻をサイドバーに表示
 try:
     sel_mtime = datetime.datetime.fromtimestamp(Path(str(selected_file)).stat().st_mtime)
