@@ -616,10 +616,10 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
 
     # --- 新機能: 日足 MA75 + 直近7日 1.5倍以上条件で抽出ファイル作成 ---
     st.markdown('### 日足抽出: MA75上・MA75+20%以下・直近7営業日で1.5倍高値')
-    ma75_cache_only = st.checkbox('キャッシュのみでスキャン（data/*.parquet のみ）', value=True)
-    ma75_manual_tickers = st.text_input('手動ティッカー (カンマ区切り、例: 7201,7202 または 7201.T,7202.T)', value='')
-    ma75_lookback_days = st.number_input('直近何営業日以内の高値を確認するか', min_value=1, max_value=20, value=7, step=1)
-    if st.button('日足: MA75 条件で抽出ファイルを作成'):
+    ma75_cache_only = st.checkbox('日足MA75用: キャッシュのみでスキャン（data/*.parquet のみ）', value=True, key='ma75_cache_only')
+    ma75_manual_tickers = st.text_input('日足MA75用手動ティッカー (カンマ区切り、例: 7201,7202 または 7201.T,7202.T)', value='', key='ma75_manual_tickers')
+    ma75_lookback_days = st.number_input('日足MA75用: 直近何営業日以内の高値を確認するか', min_value=1, max_value=20, value=7, step=1, key='ma75_lookback_days')
+    if st.button('日足: MA75 条件で抽出ファイルを作成', key='ma75_extract_button'):
         import csv, traceback
         from data_fetcher import load_ticker_from_cache
         import config
