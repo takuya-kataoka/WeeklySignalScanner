@@ -10,6 +10,31 @@ import math
 import datetime
 import re
 
+
+def normalize_ticker_input(text: str):
+    parts = [p.strip() for p in re.split('[,\n;]+', text) if p.strip()]
+    normalized = []
+    for token in parts:
+        if re.fullmatch(r"\d{1,4}", token):
+            normalized.append(f"{int(token):04d}.T")
+        else:
+            tok = token.upper()
+            if not tok.endswith('.T'):
+                tok = tok + '.T'
+            normalized.append(tok)
+    return normalized
+
+
+def format_csv_filename(prefix: str):
+    from pathlib import Path
+    import datetime
+    safe_name = prefix.replace(' ', '_')
+    stem = Path(safe_name).stem
+    ext = Path(safe_name).suffix or '.csv'
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d_%H%M%S')
+    return f"{stem}_{ts}{ext}"
+
+
 st.set_page_config(page_title="週足スクリーナー", layout="wide")
 
 # バージョン表示: ルートの VERSION ファイルを参照して動的に表示する
@@ -588,6 +613,113 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                         continue
             else:
                 st.info('本日の条件に合致する銘柄は見つかりませんでした。')
+
+    # --- 新機能: 日足 MA75 + 直近7日 1.5倍以上条件で抽出ファイル作成 ---
+    st.markdown('### 日足抽出: MA75上・MA75+20%以下・直近7営業日で1.5倍高値')
+    ma75_cache_only = st.checkbox('キャッシュのみでスキャン（data/*.parquet のみ）', value=True)
+    ma75_manual_tickers = st.text_input('手動ティッカー (カンマ区切り、例: 7201,7202 または 7201.T,7202.T)', value='')
+    ma75_lookback_days = st.number_input('直近何営業日以内の高値を確認するか', min_value=1, max_value=20, value=7, step=1)
+    if st.button('日足: MA75 条件で抽出ファイルを作成'):
+        import csv, traceback
+        from data_fetcher import load_ticker_from_cache
+        import config
+        import pandas as _pd
+
+        data_cache_dir = base_dir.parent / 'data'
+        cached_files = sorted([p.stem for p in data_cache_dir.glob('*.parquet')]) if data_cache_dir.exists() else []
+
+        if ma75_manual_tickers and ma75_manual_tickers.strip():
+            targets = normalize_ticker_input(ma75_manual_tickers)
+        else:
+            if cached_files:
+                targets = cached_files
+            else:
+                st.info('data/*.parquet が存在しません。手動ティッカーを入力してください。')
+                targets = []
+
+        if not targets:
+            st.stop()
+
+        results = []
+        with st.spinner(f'日足MA75抽出中... {len(targets)} 銘柄'):
+            for t in targets:
+                try:
+                    df = None
+                    try:
+                        if ma75_cache_only:
+                            df = load_ticker_from_cache(t, cache_dir=str(data_cache_dir))
+                        else:
+                            df = load_ticker_from_cache(t, cache_dir=str(data_cache_dir))
+                    except Exception:
+                        df = None
+
+                    if df is None or len(df) < 80:
+                        df = yf.Ticker(t).history(period='120d', interval='1d')
+
+                    if df is None or df.empty:
+                        continue
+
+                    if not isinstance(df.index, _pd.DatetimeIndex):
+                        df.index = _pd.to_datetime(df.index)
+                    df = df.sort_index()
+                    df = df.dropna(subset=['Open', 'High', 'Low', 'Close'])
+                    if df.empty or len(df) < 80:
+                        continue
+
+                    closes = df['Close'].astype(float)
+                    ma75 = closes.rolling(window=75).mean()
+                    if len(ma75) < 1 or _pd.isna(ma75.iloc[-1]):
+                        continue
+                    ma75_last = float(ma75.iloc[-1])
+
+                    last_open = float(df['Open'].iloc[-1])
+                    last_close = float(df['Close'].iloc[-1])
+                    last_high = float(df['High'].iloc[-1])
+                    body_low = min(last_open, last_close)
+                    body_high = max(last_open, last_close)
+                    if body_low < ma75_last:
+                        continue
+                    if last_close > ma75_last * 1.20:
+                        continue
+
+                    recent_highs = df['High'].iloc[-(ma75_lookback_days + 1):-1]
+                    if recent_highs.empty:
+                        continue
+                    required_price = last_close * 1.5
+                    max_recent_high = float(recent_highs.max())
+                    if max_recent_high < required_price:
+                        continue
+
+                    results.append({
+                        'ticker': t,
+                        'date': df.index[-1].strftime('%Y-%m-%d'),
+                        'close': round(last_close, 2),
+                        'ma75': round(ma75_last, 2),
+                        'body_low': round(body_low, 2),
+                        'body_high': round(body_high, 2),
+                        'high_{}_days'.format(int(ma75_lookback_days)): round(max_recent_high, 2),
+                        'high_ratio': round(max_recent_high / last_close, 3),
+                    })
+                except Exception as e:
+                    st.sidebar.info(f'{t} 処理エラー: {e}')
+                    continue
+
+        os.makedirs(results_dir, exist_ok=True)
+        if results:
+            results = sorted(results, key=lambda r: (r.get('close') is None, r.get('close', 0)))
+            out_name = format_csv_filename(config.jp_filename('日足_MA75_直近7日_1.5倍'))
+            out_path = results_dir / out_name
+            fieldnames = ['ticker', 'date', 'close', 'ma75', 'body_low', 'body_high', f'high_{int(ma75_lookback_days)}_days', 'high_ratio']
+            with open(out_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(results)
+            df_res = pd.DataFrame(results)
+            st.success(f'日足MA75抽出結果を保存: {out_path}（{len(df_res)} 件）')
+            st.download_button('CSV ダウンロード', df_res.to_csv(index=False).encode('utf-8-sig'), file_name=out_path.name, mime='text/csv')
+            st.dataframe(df_res)
+        else:
+            st.info('条件に合致する銘柄は見つかりませんでした。')
 
     # 抽出モード選択: 最新 / 単一日指定（as-of）
     extract_mode = st.selectbox('抽出モード', ['最新版（最新キャッシュ）', '単一日指定'], index=0)
