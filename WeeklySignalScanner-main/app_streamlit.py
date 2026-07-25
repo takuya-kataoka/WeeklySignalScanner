@@ -626,10 +626,9 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                 st.info('本日の条件に合致する銘柄は見つかりませんでした。')
 
     st.write('---')
-    st.markdown('### 日足抽出: MA75上・MA75+20%以下・直近7営業日で1.5倍高値')
+    st.markdown('### 日足抽出: MA75上・直近7営業日でMA75の1.5倍高値')
     st.markdown('''- 条件: 現在足の実体が MA75 以上
-- 現在終値が MA75 の +20% 以下
-- 過去指定営業日内に現在終値の 1.5 倍以上の高値がある銘柄を抽出します''')
+- 過去指定営業日内に MA75 の 1.5 倍以上の高値がある銘柄を抽出します''')
     ma75_cache_only = st.checkbox('日足MA75用: キャッシュのみでスキャン（data/*.parquet のみ）', value=True, key='ma75_cache_only')
     ma75_manual_tickers = st.text_input('日足MA75用手動ティッカー (カンマ区切り、例: 7201,7202 または 7201.T,7202.T)', value='', key='ma75_manual_tickers')
     ma75_lookback_days = st.number_input('日足MA75用: 直近何営業日以内の高値を確認するか', min_value=1, max_value=20, value=7, step=1, key='ma75_lookback_days')
