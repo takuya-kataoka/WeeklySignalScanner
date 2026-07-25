@@ -218,6 +218,10 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                 except Exception as e:
                     st.error(f'ダウンロード中にエラー: {e}')
 
+    st.write('---')
+    st.markdown('## 抽出・スキャン')
+    st.markdown('以下のボタンはそれぞれ異なる抽出シグナルを対象としています。各セクションの条件を確認し、必要に応じて設定を調整してください。')
+
     # 包み足判定を緩和するか（チェック時のみ緩和） - スキャンボタン近くに配置
     relax_engulfing = st.checkbox('包み足判定を緩和する（チェック時のみ有効）', value=False)
     # MA条件を無視して抽出するか（チェック時は MA 条件を外す）
@@ -225,9 +229,12 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
 
     # --- 新機能: 月足 MA9/MA24 ゴールデンクロス抽出（常時表示） ---
     st.markdown('### 月足: MA9 / MA24 ゴールデンクロス抽出')
+    st.markdown('''- 条件: 月足で MA9 が MA24 を上抜けした銘柄を抽出します。
+- 検出対象: キャッシュまたは yfinance から取得した月足データ
+- 出力先: `outputs/results` に CSV を保存します''')
     gc_within_months = st.number_input('何か月以内のゴールデンクロスを抽出するか（0=指定なし）', min_value=0, max_value=60, value=0, step=1)
     gc_cache_only = st.checkbox('キャッシュのみで判定（data/*.parquet のみ）', value=True)
-    if st.button('月足: MA9/MA24 ゴールデンクロス抽出'):
+    if st.button('月足: MA9/MA24 ゴールデンクロス抽出', key='monthly_gc_button'):
         import config, datetime
         from pathlib import Path
         from data_fetcher import load_ticker_from_cache
@@ -472,11 +479,14 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
         except Exception as e:
             st.sidebar.error(f'自動コミット中に例外が発生しました: {e}')
 
-    # --- 新機能: 短期急騰・本物の初動スクリーナー（日足表示） ---
+    st.write('---')
     st.markdown('### 短期急騰: 本物の初動スクリーナー（日足表示）')
-    momentum_cache_only = st.checkbox('キャッシュ優先で判定（data/*.parquet を優先）', value=True)
-    momentum_sample = st.text_input('手動ティッカー（カンマ区切り、例: 4179.T,8105.T）', value='')
-    if st.button('短期_初動スクリーニング実行'):
+    st.markdown('''- 条件: 直近 40 日間で出来高急増と 5%以上上昇した銘柄を検出します。
+- 判定: 25 日移動平均乖離率が 20% 未満、出来高倍率 3 倍以上
+- 入力: 既存キャッシュまたは手動ティッカー入力''')
+    momentum_cache_only = st.checkbox('キャッシュ優先で判定（data/*.parquet を優先）', value=True, key='momentum_cache_only')
+    momentum_sample = st.text_input('手動ティッカー（カンマ区切り、例: 4179.T,8105.T）', value='', key='momentum_sample')
+    if st.button('短期_初動スクリーニング実行', key='momentum_button'):
         import csv, traceback
         from data_fetcher import load_ticker_from_cache
         import pandas as _pd
@@ -599,11 +609,13 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                         if d is None or d.empty:
                             st.warning(f'{t}: 日足データ取得失敗')
                             continue
-                        # plot daily candlestick with MA25
+                        # plot daily candlestick with MA25 and MA75
                         ma25 = d['Close'].rolling(window=25).mean()
+                        ma75 = d['Close'].rolling(window=75).mean()
                         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3])
                         fig.add_trace(go.Candlestick(x=d.index, open=d['Open'], high=d['High'], low=d['Low'], close=d['Close'], name='価格'), row=1, col=1)
                         fig.add_trace(go.Scatter(x=d.index, y=ma25, name='MA25', line=dict(color='orange', width=1.5)), row=1, col=1)
+                        fig.add_trace(go.Scatter(x=d.index, y=ma75, name='MA75', line=dict(color='magenta', width=1.5, dash='dot')), row=1, col=1)
                         colors = ['red' if d['Close'].iloc[i] >= d['Open'].iloc[i] else 'blue' for i in range(len(d))]
                         fig.add_trace(go.Bar(x=d.index, y=d['Volume'], marker_color=colors, showlegend=False), row=2, col=1)
                         fig.update_layout(height=400, xaxis_rangeslider_visible=False, template='plotly_white')
@@ -614,8 +626,11 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
             else:
                 st.info('本日の条件に合致する銘柄は見つかりませんでした。')
 
-    # --- 新機能: 日足 MA75 + 直近7日 1.5倍以上条件で抽出ファイル作成 ---
+    st.write('---')
     st.markdown('### 日足抽出: MA75上・MA75+20%以下・直近7営業日で1.5倍高値')
+    st.markdown('''- 条件: 現在足の実体が MA75 以上
+- 現在終値が MA75 の +20% 以下
+- 過去指定営業日内に現在終値の 1.5 倍以上の高値がある銘柄を抽出します''')
     ma75_cache_only = st.checkbox('日足MA75用: キャッシュのみでスキャン（data/*.parquet のみ）', value=True, key='ma75_cache_only')
     ma75_manual_tickers = st.text_input('日足MA75用手動ティッカー (カンマ区切り、例: 7201,7202 または 7201.T,7202.T)', value='', key='ma75_manual_tickers')
     ma75_lookback_days = st.number_input('日足MA75用: 直近何営業日以内の高値を確認するか', min_value=1, max_value=20, value=7, step=1, key='ma75_lookback_days')
@@ -677,8 +692,11 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                     last_high = float(df['High'].iloc[-1])
                     body_low = min(last_open, last_close)
                     body_high = max(last_open, last_close)
-                    if body_low < ma75_last:
+
+                    # 現在値が MA75 以下なら除外
+                    if last_close < ma75_last:
                         continue
+                    # MA75 から 20% 超の上昇は除外
                     if last_close > ma75_last * 1.20:
                         continue
 
@@ -831,8 +849,11 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
             except Exception as e:
                 st.error(f'スキャン中にエラー: {e}')
 
-    # --- 新機能: 月足包み足を n か月以内に検出して抽出ファイルを作成 ---
+    st.write('---')
     st.markdown('### 月足抽出: 包み足が出ている銘柄を n か月以内に検出してファイル出力')
+    st.markdown('''- 条件: 直近 n か月以内の月足陽線包み足を検出します。
+- フィルタ: 検出後の上昇率で絞り込み可能（上限/下限指定）
+- 対象: キャッシュのみ、または全銘柄に対して判定できます''')
     months_within = st.number_input('n (か月以内)', min_value=1, max_value=12, value=1, step=1)
     scope_choice = st.selectbox('スキャン範囲', ['全銘柄（1000-9999）'])
     # キャッシュのみスキャン: data/*.parquet が存在する場合はそれを使ってネット取得を最小化する
