@@ -685,8 +685,10 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                         continue
                     ma75_last = float(ma75.iloc[-1])
 
+                    last_open = float(df['Open'].iloc[-1])
                     last_close = float(df['Close'].iloc[-1])
-                    last_high = float(df['High'].iloc[-1])
+                    body_low = min(last_open, last_close)
+                    body_high = max(last_open, last_close)
 
                     # 現在終値が MA75 以上か確認
                     if last_close < ma75_last:
