@@ -626,8 +626,8 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                 st.info('本日の条件に合致する銘柄は見つかりませんでした。')
 
     st.write('---')
-    st.markdown('### 日足抽出: MA75上・直近7営業日でMA75の1.5倍高値')
-    st.markdown('''- 条件: 現在足の実体が MA75 以上
+    st.markdown('### 日足抽出: 現在終値が MA75 以上・直近7営業日でMA75の1.5倍高値')
+    st.markdown('''- 条件: 現在終値が MA75 以上
 - 過去指定営業日内に MA75 の 1.5 倍以上の高値がある銘柄を抽出します''')
     ma75_cache_only = st.checkbox('日足MA75用: キャッシュのみでスキャン（data/*.parquet のみ）', value=True, key='ma75_cache_only')
     ma75_manual_tickers = st.text_input('日足MA75用手動ティッカー (カンマ区切り、例: 7201,7202 または 7201.T,7202.T)', value='', key='ma75_manual_tickers')
@@ -685,14 +685,11 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                         continue
                     ma75_last = float(ma75.iloc[-1])
 
-                    last_open = float(df['Open'].iloc[-1])
                     last_close = float(df['Close'].iloc[-1])
                     last_high = float(df['High'].iloc[-1])
-                    body_low = min(last_open, last_close)
-                    body_high = max(last_open, last_close)
 
-                    # 現在足の実体が MA75 以上になっているか確認
-                    if body_low < ma75_last:
+                    # 現在終値が MA75 以上か確認
+                    if last_close < ma75_last:
                         continue
 
                     recent_highs = df['High'].iloc[-(ma75_lookback_days + 1):-1]
