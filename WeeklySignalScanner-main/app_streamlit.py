@@ -37,10 +37,12 @@ def format_csv_filename(prefix: str):
 
 st.set_page_config(page_title="週足スクリーナー", layout="wide")
 
+# ベースディレクトリを明示（スクリプトの配置ディレクトリ基準にする）
+base_dir = Path(__file__).resolve().parent
+
 # バージョン表示: ルートの VERSION ファイルを参照して動的に表示する
 version = "1.00"
 try:
-    # base_dir はこのファイルのディレクトリ（WeeklySignalScanner-main）
     repo_root = base_dir.parent
     version_path = repo_root / 'VERSION'
     if version_path.exists():
@@ -48,10 +50,7 @@ try:
 except Exception:
     pass
 
-st.title(f"📈 週足スクリーナー - MA52 & 陽線包み足 ver1.03")
-
-# ベースディレクトリを明示（スクリプトの配置ディレクトリ基準にする）
-base_dir = Path(__file__).resolve().parent
+st.title(f"📈 週足スクリーナー - MA52 & 陽線包み足 v{version}")
 
 # デバイス選択: PC / Mobile（UI のサイズ調整に使う）
 device_mode = st.sidebar.selectbox('表示デバイス', ['PC', 'Mobile'], index=0)
