@@ -692,17 +692,14 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                     body_low = min(last_open, last_close)
                     body_high = max(last_open, last_close)
 
-                    # 現在値が MA75 以下なら除外
-                    if last_close < ma75_last:
-                        continue
-                    # MA75 から 20% 超の上昇は除外
-                    if last_close > ma75_last * 1.20:
+                    # 現在足の実体が MA75 以上になっているか確認
+                    if body_low < ma75_last:
                         continue
 
                     recent_highs = df['High'].iloc[-(ma75_lookback_days + 1):-1]
                     if recent_highs.empty:
                         continue
-                    required_price = last_close * 1.5
+                    required_price = ma75_last * 1.5
                     max_recent_high = float(recent_highs.max())
                     if max_recent_high < required_price:
                         continue
