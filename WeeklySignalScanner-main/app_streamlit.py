@@ -627,7 +627,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
 
     st.write('---')
     st.markdown('### 日足抽出: 現在終値が MA75 以上・直近7営業日でMA75の1.5倍高値')
-    st.markdown('''- 判定データ: 日足 (1D) の Close と High を使用します
+    st.markdown('''- 判定データ: 日足 (1D) の Close / High を使用します（週足ではありません）
 - 条件: 現在終値が MA75 以上
 - 過去指定営業日内に MA75 の 1.5 倍以上の高値がある銘柄を抽出します''')
     ma75_cache_only = st.checkbox('日足MA75用: キャッシュのみでスキャン（data/*.parquet のみ）', value=True, key='ma75_cache_only')
