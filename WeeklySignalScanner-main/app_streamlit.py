@@ -627,7 +627,8 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
 
     st.write('---')
     st.markdown('### 日足抽出: 現在終値が MA75 以上・直近7営業日でMA75の1.5倍高値')
-    st.markdown('''- 条件: 現在終値が MA75 以上
+    st.markdown('''- 判定データ: 日足 (1D) の Close と High を使用します
+- 条件: 現在終値が MA75 以上
 - 過去指定営業日内に MA75 の 1.5 倍以上の高値がある銘柄を抽出します''')
     ma75_cache_only = st.checkbox('日足MA75用: キャッシュのみでスキャン（data/*.parquet のみ）', value=True, key='ma75_cache_only')
     ma75_manual_tickers = st.text_input('日足MA75用手動ティッカー (カンマ区切り、例: 7201,7202 または 7201.T,7202.T)', value='', key='ma75_manual_tickers')
@@ -668,6 +669,13 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
 
                     if df is None or len(df) < 80:
                         df = yf.Ticker(t).history(period='120d', interval='1d')
+
+                    # 直近の最新足を含めて判定するため、必要に応じて 1d データを再取得
+                    if df is not None and not df.empty and len(df) >= 80:
+                        try:
+                            df = df.tail(120)
+                        except Exception:
+                            pass
 
                     if df is None or df.empty:
                         continue
