@@ -1266,13 +1266,18 @@ ticker_list = df['ticker'].tolist()
 
 # 選択ファイルが月足ファイルかどうかを判定（ファイル名またはカラムで判定）
 is_month_file = False
+is_day_file = False
 try:
     sel_name = Path(str(selected_file)).name
     # ファイル名に '月足' が含まれるか、CSV に 'cross_month' カラムがあれば月足系出力とみなす
     if '月足' in sel_name or ('cross_month' in df.columns if isinstance(df, pd.DataFrame) else False):
         is_month_file = True
+    # 日足出力ファイルはファイル名に '日足' が含まれるか、日足抽出結果の特徴カラムがあれば判定
+    if '日足' in sel_name or any(c in df.columns for c in ['body_low', 'body_high', 'high_7_days', 'high_{}_days'.format(int(ma75_lookback_days)) if 'ma75_lookback_days' in locals() else 'high_7_days']):
+        is_day_file = True
 except Exception:
     is_month_file = False
+    is_day_file = False
 
 # 表示モード選択
 display_mode = st.sidebar.radio("表示モード", ["単一銘柄", "10銘柄一覧"])
@@ -1401,6 +1406,81 @@ if display_mode == "10銘柄一覧":
                         mfig.update_xaxes(showticklabels=False, row=1, col=1)
                         mfig.update_xaxes(showticklabels=False, row=2, col=1)
                         st.plotly_chart(mfig, width='stretch', key=f"chart_grid_month_{ticker}")
+                    elif is_day_file:
+                        # 日足チャート表示
+                        d = None
+                        try:
+                            d = load_ticker_from_cache(ticker, cache_dir=str(data_cache_dir))
+                            if d is not None and len(d) >= 60:
+                                d = d.tail(60)
+                            else:
+                                d = yf.Ticker(ticker).history(period='90d', interval='1d')
+                        except Exception:
+                            d = yf.Ticker(ticker).history(period='90d', interval='1d')
+
+                        if d is None or d.empty:
+                            st.warning(f'{ticker}: 日足データ取得失敗')
+                            continue
+
+                        latest_close = price_map.get(str(ticker)) if price_map else None
+                        if latest_close is None:
+                            latest_close = d['Close'].iloc[-1]
+                        # try to prefer metrics from loaded results CSV
+                        change_pct_display = None
+                        volume_ratio_display = None
+                        try:
+                            if 'ticker' in df.columns:
+                                matches = df[df['ticker'].astype(str) == str(ticker)]
+                                if len(matches) > 0:
+                                    row = matches.iloc[-1]
+                                    for k in ('前日比(%)','前日比','price_change_pct','change_pct'):
+                                        if k in row.index:
+                                            try:
+                                                change_pct_display = float(row[k])
+                                                break
+                                            except Exception:
+                                                pass
+                                    for k in ('出来高倍率','volume_ratio','出来高比','vol_ratio'):
+                                        if k in row.index:
+                                            try:
+                                                volume_ratio_display = float(row[k])
+                                                break
+                                            except Exception:
+                                                pass
+                        except Exception:
+                            pass
+
+                        # fallback: compute from daily data
+                        if change_pct_display is None:
+                            try:
+                                prev_close = float(d['Close'].iloc[-2])
+                                change_pct_display = (latest_close - prev_close) / prev_close * 100.0 if prev_close != 0 else 0.0
+                            except Exception:
+                                change_pct_display = 0.0
+                        if volume_ratio_display is None:
+                            try:
+                                vols = d['Volume'].astype(float)
+                                if len(vols) >= 2:
+                                    avg_vol = float(vols.iloc[:-1].tail(20).mean()) if len(vols) > 1 else 0.0
+                                else:
+                                    avg_vol = 0.0
+                                volume_ratio_display = (float(d['Volume'].iloc[-1]) / avg_vol) if avg_vol > 0 else 0.0
+                            except Exception:
+                                volume_ratio_display = 0.0
+
+                        st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}  —  前日比: {change_pct_display:+.2f}% · 出来高倍率: {volume_ratio_display:.2f}x")
+                        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.75, 0.25])
+                        fig.add_trace(go.Candlestick(x=d.index, open=d['Open'], high=d['High'], low=d['Low'], close=d['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue', showlegend=False), row=1, col=1)
+                        fig.add_trace(go.Scatter(x=d.index, y=d['Close'].rolling(25).mean(), name='MA25', line=dict(color='orange', width=1), showlegend=False), row=1, col=1)
+                        fig.add_trace(go.Scatter(x=d.index, y=d['Close'].rolling(75).mean(), name='MA75', line=dict(color='magenta', width=1), showlegend=False), row=1, col=1)
+                        colors = ['red' if d['Close'].iloc[k] >= d['Open'].iloc[k] else 'blue' for k in range(len(d))]
+                        fig.add_trace(go.Bar(x=d.index, y=d['Volume'], marker_color=colors, showlegend=False), row=2, col=1)
+                        fig.update_layout(height=300, margin=dict(l=30, r=10, t=20, b=20), xaxis_rangeslider_visible=False, hovermode='x unified', template='plotly_white', font=dict(size=8))
+                        fig.update_yaxes(title_text="", row=1, col=1)
+                        fig.update_yaxes(title_text="", row=2, col=1)
+                        fig.update_xaxes(showticklabels=False, row=1, col=1)
+                        fig.update_xaxes(showticklabels=False, row=2, col=1)
+                        st.plotly_chart(fig, width='stretch', key=f"chart_grid_day_{ticker}")
                     else:
                         data = fetch_data(ticker)
                         if data is None:
