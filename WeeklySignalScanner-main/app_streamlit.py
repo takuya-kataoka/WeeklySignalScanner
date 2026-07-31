@@ -129,7 +129,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
         'data に存在する銘柄のみ取得（既存銘柄を再取得）',
         '今日の日付が無いものだけ取得（差分更新）',
         'すべての銘柄を取得（範囲内全件）'
-    ])
+    ], index=2)
     if st.button('データをダウンロード'):
         import data_fetcher
         from data_fetcher import load_ticker_from_cache, fetch_and_save_list
@@ -738,6 +738,27 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
             st.success(f'日足MA75抽出結果を保存: {out_path}（{len(df_res)} 件）')
             st.download_button('CSV ダウンロード', df_res.to_csv(index=False).encode('utf-8-sig'), file_name=out_path.name, mime='text/csv')
             st.dataframe(df_res)
+
+            # 日足MA75の抽出結果もリポジトリに保存できるようコミットを試行する
+            try:
+                import subprocess
+                repo_root = base_dir.parent
+                subprocess.run(['git', '-C', str(repo_root), 'config', 'user.email', 'streamlit@example.com'], check=False)
+                subprocess.run(['git', '-C', str(repo_root), 'config', 'user.name', 'StreamlitAutoCommit'], check=False)
+                rel_path = os.path.relpath(str(out_path), start=str(repo_root))
+                stage_proc = subprocess.run(['git', '-C', str(repo_root), 'add', '-f', rel_path], capture_output=True, text=True)
+                st.sidebar.info(f'git add {rel_path} -> returncode={stage_proc.returncode} stderr:{stage_proc.stderr}')
+
+                commit_msg = f"chore(ma75): add 日足_MA75_直近{int(ma75_lookback_days)}日_1.5倍 {datetime.datetime.now(datetime.timezone.utc).isoformat()}"
+                commit_proc = subprocess.run(['git', '-C', str(repo_root), 'commit', '-m', commit_msg], capture_output=True, text=True)
+                st.sidebar.info(f'git commit returncode={commit_proc.returncode}\nstdout:{commit_proc.stdout}\nstderr:{commit_proc.stderr}')
+                if commit_proc.returncode != 0:
+                    if 'nothing to commit' in (commit_proc.stdout + commit_proc.stderr).lower():
+                        st.sidebar.info('日足MA75抽出結果はすでに保存済みか、コミット対象がありません。')
+                    else:
+                        st.sidebar.error('日足MA75抽出結果の git commit に失敗しました。')
+            except Exception as e:
+                st.sidebar.error(f'日足MA75抽出結果の保存処理中に例外: {e}')
         else:
             st.info('条件に合致する銘柄は見つかりませんでした。')
 
