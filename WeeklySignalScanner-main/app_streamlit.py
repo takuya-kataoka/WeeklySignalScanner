@@ -1151,29 +1151,6 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
         except Exception:
             st.error('ファイル一覧の取得に失敗しました')
 
-    st.write('---')
-    st.write('予想ページ起動（外部Streamlitを別ポートで起動）')
-    app_options = {
-        '既存: app_predict.py': 'app_predict.py',
-        '新規: 血統予想 app (streamlit_horse_app.py)': 'streamlit_horse_app.py'
-    }
-    chosen_label = st.selectbox('起動するアプリを選択', list(app_options.keys()))
-    chosen_app = app_options[chosen_label]
-    chosen_port = st.number_input('起動ポート', min_value=1024, max_value=65535, value=8502)
-    if st.button('選択アプリを起動'):
-        import subprocess, os
-        out_log = str(base_dir / 'outputs' / f'streamlit_{chosen_port}.log')
-        os.makedirs(str(base_dir / 'outputs'), exist_ok=True)
-        streamlit_bin = os.path.abspath('/workspaces/WeeklySignalScanner-main/.venv/bin/streamlit')
-        app_path = os.path.abspath(base_dir / chosen_app)
-        cmd = f"nohup env STREAMLIT_BROWSER_GUESSING=false STREAMLIT_DISABLE_TELEMETRY=1 {streamlit_bin} run {app_path} --server.port {chosen_port} --server.headless true > {out_log} 2>&1 &"
-        try:
-            subprocess.Popen(cmd, shell=True, cwd=os.getcwd())
-            st.info(f'起動コマンドを送信しました: {chosen_app} -> http://localhost:{chosen_port}')
-            st.write('Local URL:', f'http://localhost:{chosen_port}')
-            st.write(f'ログ: {out_log}')
-        except Exception as e:
-            st.error(f'予想ページ起動に失敗しました: {e}')
 
 # データ読み込み（先頭に retrieved_at メタ行がある場合はスキップ）
 def read_maybe_timestampped_csv(path):
@@ -1300,23 +1277,18 @@ except Exception:
     is_month_file = False
     is_day_file = False
 
-# 表示モード選択
-display_mode = st.sidebar.radio("表示モード", ["単一銘柄", "10銘柄一覧"])
+# 表示は常に 10銘柄一覧表示を使用し、単一銘柄モードは削除
+st.sidebar.caption("表示: 10銘柄一覧")
+# 10銘柄ずつページング
+total_pages = math.ceil(len(ticker_list) / 10)
+page = st.sidebar.number_input("ページ", min_value=1, max_value=total_pages, value=1, step=1)
+start_idx = (page - 1) * 10
+end_idx = min(start_idx + 10, len(ticker_list))
+selected_tickers = ticker_list[start_idx:end_idx]
+st.sidebar.info(f"ページ {page}/{total_pages} (銘柄 {start_idx+1}〜{end_idx})")
 
-if display_mode == "単一銘柄":
-    selected_ticker = st.sidebar.selectbox("銘柄を選択", ticker_list)
-    selected_tickers = [selected_ticker]
-else:
-    # 10銘柄ずつページング
-    total_pages = math.ceil(len(ticker_list) / 10)
-    page = st.sidebar.number_input("ページ", min_value=1, max_value=total_pages, value=1, step=1)
-    start_idx = (page - 1) * 10
-    end_idx = min(start_idx + 10, len(ticker_list))
-    selected_tickers = ticker_list[start_idx:end_idx]
-    st.sidebar.info(f"ページ {page}/{total_pages} (銘柄 {start_idx+1}〜{end_idx})")
-    
-    # 2列レイアウトで表示
-    cols_per_row = 2
+# 2列レイアウトで表示
+cols_per_row = 2
 
 # データ取得
 @st.cache_data(ttl=3600)
@@ -1341,443 +1313,215 @@ def fetch_month_data(ticker):
     except Exception:
         return None
 
-# 選択された銘柄に対してチャート表示
-if display_mode == "10銘柄一覧":
-    # 2列グリッドレイアウト
-    for i in range(0, len(selected_tickers), cols_per_row):
-        cols = st.columns(cols_per_row)
-        for j, col in enumerate(cols):
-            idx = i + j
-            if idx >= len(selected_tickers):
-                break
-            ticker = selected_tickers[idx]
-            
-            with col:
-                    # グリッド表示: 選択ファイルが月足ファイルなら月足を表示（小さめ）、なければ週足を表示
-                    if is_month_file:
-                        month_data = fetch_month_data(ticker)
-                        if month_data is None:
-                            st.warning(f"{ticker}: 月足データ取得失敗")
-                            continue
-                        latest_close = price_map.get(str(ticker)) if price_map else None
-                        if latest_close is None:
-                            latest_close = month_data['Close'].iloc[-1]
-                        # try to prefer metrics from loaded results CSV
-                        change_pct_display = None
-                        volume_ratio_display = None
-                        try:
-                            if 'ticker' in df.columns:
-                                matches = df[df['ticker'].astype(str) == str(ticker)]
-                                if len(matches) > 0:
-                                    row = matches.iloc[-1]
-                                    for k in ('前日比(%)','前日比','price_change_pct','change_pct'):
-                                        if k in row.index:
-                                            try:
-                                                change_pct_display = float(row[k])
-                                                break
-                                            except Exception:
-                                                pass
-                                    for k in ('出来高倍率','volume_ratio','出来高比','vol_ratio'):
-                                        if k in row.index:
-                                            try:
-                                                volume_ratio_display = float(row[k])
-                                                break
-                                            except Exception:
-                                                pass
-                        except Exception:
-                            pass
+# 10銘柄一覧表示を常に使用する
+for i in range(0, len(selected_tickers), cols_per_row):
+    cols = st.columns(cols_per_row)
+    for j, col in enumerate(cols):
+        idx = i + j
+        if idx >= len(selected_tickers):
+            break
+        ticker = selected_tickers[idx]
 
-                        # fallback: compute from month_data
-                        if change_pct_display is None:
-                            try:
-                                prev_close = float(month_data['Close'].iloc[-2])
-                                change_pct_display = (latest_close - prev_close) / prev_close * 100.0 if prev_close != 0 else 0.0
-                            except Exception:
-                                change_pct_display = 0.0
-                        if volume_ratio_display is None:
-                            try:
-                                vols = month_data['Volume'].astype(float)
-                                if len(vols) >= 2:
-                                    avg_vol = float(vols.iloc[:-1].tail(20).mean()) if len(vols) > 1 else 0.0
-                                else:
-                                    avg_vol = 0.0
-                                volume_ratio_display = (float(month_data['Volume'].iloc[-1]) / avg_vol) if avg_vol > 0 else 0.0
-                            except Exception:
-                                volume_ratio_display = 0.0
+        with col:
+            if is_month_file:
+                month_data = fetch_month_data(ticker)
+                if month_data is None:
+                    st.warning(f"{ticker}: 月足データ取得失敗")
+                    continue
 
-                        st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}  —  前日比: {change_pct_display:+.2f}% · 出来高倍率: {volume_ratio_display:.2f}x")
-                        mfig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.75, 0.25])
-                        mfig.add_trace(go.Candlestick(x=month_data.index, open=month_data['Open'], high=month_data['High'], low=month_data['Low'], close=month_data['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue', showlegend=False), row=1, col=1)
-                        # 月足の移動平均表示: ファイル名に MA9/MA24 を含む出力なら MA9/MA24 を、そうでなければ MA12 を表示
-                        try:
-                            if 'MA9' in sel_name or 'MA9_MA24' in sel_name or 'GoldenCross' in sel_name:
-                                ma9_mon = month_data['Close'].rolling(window=9).mean()
-                                ma24_mon = month_data['Close'].rolling(window=24).mean()
-                                mfig.add_trace(go.Scatter(x=month_data.index, y=ma9_mon, name='MA9(months)', line=dict(color='green', width=1.5), showlegend=True), row=1, col=1)
-                                mfig.add_trace(go.Scatter(x=month_data.index, y=ma24_mon, name='MA24(months)', line=dict(color='purple', width=1.5), showlegend=True), row=1, col=1)
-                            else:
-                                mfig.add_trace(go.Scatter(x=month_data.index, y=month_data['Close'].rolling(12).mean(), name='MA12', line=dict(color='orange', width=1), showlegend=False), row=1, col=1)
-                        except Exception:
-                            mfig.add_trace(go.Scatter(x=month_data.index, y=month_data['Close'].rolling(12).mean(), name='MA12', line=dict(color='orange', width=1), showlegend=False), row=1, col=1)
-                        mcolors = ['red' if month_data['Close'].iloc[k] >= month_data['Open'].iloc[k] else 'blue' for k in range(len(month_data))]
-                        mfig.add_trace(go.Bar(x=month_data.index, y=month_data['Volume'], marker_color=mcolors, showlegend=False), row=2, col=1)
-                        mfig.update_layout(height=300, margin=dict(l=30, r=10, t=20, b=20), xaxis_rangeslider_visible=False, hovermode='x unified', template='plotly_white', font=dict(size=8))
-                        mfig.update_yaxes(title_text="", row=1, col=1)
-                        mfig.update_yaxes(title_text="", row=2, col=1)
-                        mfig.update_xaxes(showticklabels=False, row=1, col=1)
-                        mfig.update_xaxes(showticklabels=False, row=2, col=1)
-                        st.plotly_chart(mfig, width='stretch', key=f"chart_grid_month_{ticker}")
-                    elif is_day_file:
-                        # 日足チャート表示
-                        d = None
-                        try:
-                            d = load_ticker_from_cache(ticker, cache_dir=str(data_cache_dir))
-                            if d is not None and len(d) >= 60:
-                                d = d.tail(60)
-                            else:
-                                d = yf.Ticker(ticker).history(period='90d', interval='1d')
-                        except Exception:
-                            d = yf.Ticker(ticker).history(period='90d', interval='1d')
+                latest_close = price_map.get(str(ticker)) if price_map else None
+                if latest_close is None:
+                    latest_close = month_data['Close'].iloc[-1]
 
-                        if d is None or d.empty:
-                            st.warning(f'{ticker}: 日足データ取得失敗')
-                            continue
-
-                        latest_close = price_map.get(str(ticker)) if price_map else None
-                        if latest_close is None:
-                            latest_close = d['Close'].iloc[-1]
-                        # try to prefer metrics from loaded results CSV
-                        change_pct_display = None
-                        volume_ratio_display = None
-                        try:
-                            if 'ticker' in df.columns:
-                                matches = df[df['ticker'].astype(str) == str(ticker)]
-                                if len(matches) > 0:
-                                    row = matches.iloc[-1]
-                                    for k in ('前日比(%)','前日比','price_change_pct','change_pct'):
-                                        if k in row.index:
-                                            try:
-                                                change_pct_display = float(row[k])
-                                                break
-                                            except Exception:
-                                                pass
-                                    for k in ('出来高倍率','volume_ratio','出来高比','vol_ratio'):
-                                        if k in row.index:
-                                            try:
-                                                volume_ratio_display = float(row[k])
-                                                break
-                                            except Exception:
-                                                pass
-                        except Exception:
-                            pass
-
-                        # fallback: compute from daily data
-                        if change_pct_display is None:
-                            try:
-                                prev_close = float(d['Close'].iloc[-2])
-                                change_pct_display = (latest_close - prev_close) / prev_close * 100.0 if prev_close != 0 else 0.0
-                            except Exception:
-                                change_pct_display = 0.0
-                        if volume_ratio_display is None:
-                            try:
-                                vols = d['Volume'].astype(float)
-                                if len(vols) >= 2:
-                                    avg_vol = float(vols.iloc[:-1].tail(20).mean()) if len(vols) > 1 else 0.0
-                                else:
-                                    avg_vol = 0.0
-                                volume_ratio_display = (float(d['Volume'].iloc[-1]) / avg_vol) if avg_vol > 0 else 0.0
-                            except Exception:
-                                volume_ratio_display = 0.0
-
-                        st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}  —  前日比: {change_pct_display:+.2f}% · 出来高倍率: {volume_ratio_display:.2f}x")
-                        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.75, 0.25])
-                        fig.add_trace(go.Candlestick(x=d.index, open=d['Open'], high=d['High'], low=d['Low'], close=d['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue', showlegend=False), row=1, col=1)
-                        fig.add_trace(go.Scatter(x=d.index, y=d['Close'].rolling(25).mean(), name='MA25', line=dict(color='orange', width=1), showlegend=False), row=1, col=1)
-                        fig.add_trace(go.Scatter(x=d.index, y=d['Close'].rolling(75).mean(), name='MA75', line=dict(color='magenta', width=1), showlegend=False), row=1, col=1)
-                        colors = ['red' if d['Close'].iloc[k] >= d['Open'].iloc[k] else 'blue' for k in range(len(d))]
-                        fig.add_trace(go.Bar(x=d.index, y=d['Volume'], marker_color=colors, showlegend=False), row=2, col=1)
-                        fig.update_layout(height=300, margin=dict(l=30, r=10, t=20, b=20), xaxis_rangeslider_visible=False, hovermode='x unified', template='plotly_white', font=dict(size=8))
-                        fig.update_yaxes(title_text="", row=1, col=1)
-                        fig.update_yaxes(title_text="", row=2, col=1)
-                        fig.update_xaxes(showticklabels=False, row=1, col=1)
-                        fig.update_xaxes(showticklabels=False, row=2, col=1)
-                        st.plotly_chart(fig, width='stretch', key=f"chart_grid_day_{ticker}")
-                    else:
-                        data = fetch_data(ticker)
-                        if data is None:
-                            st.warning(f"{ticker}: データ取得失敗")
-                            continue
-                        # 週足表示
-                        latest_close = price_map.get(str(ticker)) if price_map else None
-                        if latest_close is None:
-                            latest_close = data['Close'].iloc[-1]
-                        # try to prefer metrics from loaded results CSV
-                        change_pct_display = None
-                        volume_ratio_display = None
-                        try:
-                            if 'ticker' in df.columns:
-                                matches = df[df['ticker'].astype(str) == str(ticker)]
-                                if len(matches) > 0:
-                                    row = matches.iloc[-1]
-                                    for k in ('前日比(%)','前日比','price_change_pct','change_pct'):
-                                        if k in row.index:
-                                            try:
-                                                change_pct_display = float(row[k])
-                                                break
-                                            except Exception:
-                                                pass
-                                    for k in ('出来高倍率','volume_ratio','出来高比','vol_ratio'):
-                                        if k in row.index:
-                                            try:
-                                                volume_ratio_display = float(row[k])
-                                                break
-                                            except Exception:
-                                                pass
-                        except Exception:
-                            pass
-
-                        # fallback: compute from weekly data
-                        if change_pct_display is None:
-                            try:
-                                prev_close = float(data['Close'].iloc[-2])
-                                change_pct_display = (latest_close - prev_close) / prev_close * 100.0 if prev_close != 0 else 0.0
-                            except Exception:
-                                change_pct_display = 0.0
-                        if volume_ratio_display is None:
-                            try:
-                                vols = data['Volume'].astype(float)
-                                if len(vols) >= 2:
-                                    avg_vol = float(vols.iloc[:-1].tail(20).mean()) if len(vols) > 1 else 0.0
-                                else:
-                                    avg_vol = 0.0
-                                volume_ratio_display = (float(data['Volume'].iloc[-1]) / avg_vol) if avg_vol > 0 else 0.0
-                            except Exception:
-                                volume_ratio_display = 0.0
-
-                        st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}  —  前日比: {change_pct_display:+.2f}% · 出来高倍率: {volume_ratio_display:.2f}x")
-                        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.75, 0.25])
-                        fig.add_trace(go.Candlestick(x=data.index, open=data['Open'], high=data['High'], low=data['Low'], close=data['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue', showlegend=False), row=1, col=1)
-                        fig.add_trace(go.Scatter(x=data.index, y=data['Close'].rolling(52).mean(), name='MA52', line=dict(color='orange', width=1), showlegend=False), row=1, col=1)
-                        colors = ['red' if data['Close'].iloc[k] >= data['Open'].iloc[k] else 'blue' for k in range(len(data))]
-                        fig.add_trace(go.Bar(x=data.index, y=data['Volume'], marker_color=colors, showlegend=False), row=2, col=1)
-                        fig.update_layout(height=300, margin=dict(l=30, r=10, t=20, b=20), xaxis_rangeslider_visible=False, hovermode='x unified', template='plotly_white', font=dict(size=8))
-                        fig.update_yaxes(title_text="", row=1, col=1)
-                        fig.update_yaxes(title_text="", row=2, col=1)
-                        fig.update_xaxes(showticklabels=False, row=1, col=1)
-                        fig.update_xaxes(showticklabels=False, row=2, col=1)
-                        st.plotly_chart(fig, width='stretch', key=f"chart_grid_{ticker}")
-
-else:
-    # 単一銘柄モード
-    for ticker in selected_tickers:
-        data = fetch_data(ticker)
-        
-        if data is None:
-            st.warning(f"{ticker}: データを取得できませんでした")
-            continue
-        
-        # 区切り線
-        st.markdown("---")
-        
-        # メトリクス表示
-        col1, col2, col3, col4, col5 = st.columns(5)
-        
-        # 単一銘柄モードでも price_map の値を優先する
-        latest_close = price_map.get(str(ticker)) if price_map else None
-        if latest_close is None:
-            latest_close = data['Close'].iloc[-1]
-        latest_volume = data['Volume'].iloc[-1]
-        ma52 = data['Close'].rolling(52).mean().iloc[-1]
-
-        # 優先: 選択中の結果ファイルに検出時のメトリクスが含まれている場合はそれを表示
-        row_from_df = None
-        try:
-            # df は読み込んだ結果ファイルの DataFrame
-            if 'ticker' in df.columns:
-                matches = df[df['ticker'].astype(str) == str(ticker)]
-                if len(matches) > 0:
-                    # 直近の行を優先
-                    row_from_df = matches.iloc[-1]
-        except Exception:
-            row_from_df = None
-
-        # 表示用の change_pct / volume_ratio を決定（ファイル優先、無ければライブ計算）
-        change_pct = None
-        volume_ratio = None
-        if row_from_df is not None:
-            # 多言語・多列名に対応して取得を試みる
-            for k in ('前日比(%)', '前日比', 'price_change_pct', 'change_pct'):
-                if k in row_from_df.index:
-                    try:
-                        change_pct = float(row_from_df[k])
-                        break
-                    except Exception:
-                        pass
-            for k in ('出来高倍率', 'volume_ratio', '出来高比', 'vol_ratio'):
-                if k in row_from_df.index:
-                    try:
-                        volume_ratio = float(row_from_df[k])
-                        break
-                    except Exception:
-                        pass
-            # 本日終値があれば表示用 price を上書き
-            for k in ('本日終値', 'latest_price', 'latest_close', 'price'):
-                if k in row_from_df.index:
-                    try:
-                        latest_close = float(row_from_df[k])
-                        break
-                    except Exception:
-                        pass
-
-        # fallback: ライブデータから算出
-        if change_pct is None:
-            change_pct = ((latest_close - data['Close'].iloc[-2]) / data['Close'].iloc[-2] * 100) if len(data) > 1 else 0
-        if volume_ratio is None:
-            # 平均20日ボリュームを算出（直近を除く）
-            vols = data['Volume'].astype(float)
-            if len(vols) >= 21:
-                avg_vol_20 = float(vols.iloc[-21:-1].mean())
-            else:
-                avg_vol_20 = float(vols.iloc[:-1].mean()) if len(vols) > 1 else 0.0
-            volume_ratio = (float(data['Volume'].iloc[-1]) / avg_vol_20) if avg_vol_20 > 0 else 0.0
-        
-        with col1:
-            st.metric("銘柄", ticker)
-        with col2:
-            st.metric("株価", f"¥{latest_close:,.2f}", f"{change_pct:+.2f}%")
-        with col3:
-            st.metric("出来高", f"{latest_volume:,.0f}")
-        with col4:
-            st.metric("52週MA", f"¥{ma52:,.2f}")
-        with col5:
-            ma_diff_pct = ((latest_close - ma52) / ma52 * 100)
-            st.metric("MA52比", f"{ma_diff_pct:+.2f}%")
-        # キャッシュされたデータの最終日または更新時刻を表示
-        try:
-            cache_path = base_dir.parent / 'data' / f"{ticker}.parquet"
-            cache_info = None
-            if cache_path.exists():
+                change_pct_display = None
+                volume_ratio_display = None
                 try:
-                    cdf = pd.read_parquet(cache_path)
-                    # インデックスに日付がある場合は最終日を表示
-                    if hasattr(cdf.index, 'max'):
-                        idxmax = cdf.index.max()
-                        cache_info = f"キャッシュ最終日: {pd.to_datetime(idxmax).date()}"
+                    if 'ticker' in df.columns:
+                        matches = df[df['ticker'].astype(str) == str(ticker)]
+                        if len(matches) > 0:
+                            row = matches.iloc[-1]
+                            for k in ('前日比(%)', '前日比', 'price_change_pct', 'change_pct'):
+                                if k in row.index:
+                                    try:
+                                        change_pct_display = float(row[k])
+                                        break
+                                    except Exception:
+                                        pass
+                            for k in ('出来高倍率', 'volume_ratio', '出来高比', 'vol_ratio'):
+                                if k in row.index:
+                                    try:
+                                        volume_ratio_display = float(row[k])
+                                        break
+                                    except Exception:
+                                        pass
                 except Exception:
-                    cache_info = f"キャッシュ最終更新: {datetime.datetime.fromtimestamp(cache_path.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')}"
-            if cache_info:
-                st.caption(cache_info)
-        except Exception:
-            pass
-        
-        # チャート作成
-        # 月足ファイルから来ているか判定（ファイル名または CSV に 'cross_month' カラムがあるかで判定）
-        is_month_file = False
-        try:
-            sel_name = Path(str(selected_file)).name
-            if '月足' in sel_name or ('cross_month' in df.columns if isinstance(df, pd.DataFrame) else False):
-                is_month_file = True
-        except Exception:
-            is_month_file = False
+                    pass
 
-        title_main = f'{ticker} 月足チャート' if is_month_file else f'{ticker} 週足チャート'
-        fig = make_subplots(
-            rows=2, cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.03,
-            row_heights=[0.7, 0.3],
-            subplot_titles=(title_main, '出来高')
-        )
-        
-        # ローソク足
-        fig.add_trace(
-            go.Candlestick(
-                x=data.index,
-                open=data['Open'],
-                high=data['High'],
-                low=data['Low'],
-                close=data['Close'],
-                name='価格',
-                increasing_line_color='red',
-                decreasing_line_color='blue'
-            ),
-            row=1, col=1
-        )
-        
-        # MA52
-        fig.add_trace(
-            go.Scatter(
-                x=data.index,
-                y=data['Close'].rolling(52).mean(),
-                name='MA52',
-                line=dict(color='orange', width=2)
-            ),
-            row=1, col=1
-        )
-        
-        # 出来高
-        colors = ['red' if data['Close'].iloc[i] >= data['Open'].iloc[i] else 'blue' 
-                  for i in range(len(data))]
-        
-        fig.add_trace(
-            go.Bar(
-                x=data.index,
-                y=data['Volume'],
-                name='出来高',
-                marker_color=colors,
-                showlegend=False
-            ),
-            row=2, col=1
-        )
-        
-        # レイアウト調整
-        fig.update_layout(
-            height=600,
-            xaxis_rangeslider_visible=False,
-            hovermode='x unified',
-            template='plotly_white',
-            showlegend=True
-        )
-        
-        fig.update_yaxes(title_text="株価 (¥)", row=1, col=1)
-        fig.update_yaxes(title_text="出来高", row=2, col=1)
-        fig.update_xaxes(title_text="日付", row=2, col=1)
-        
-        if is_month_file:
-            # 月足表示も取得して横並び表示
-            month_data = fetch_month_data(ticker)
-            if month_data is None:
-                # 月足データが無ければ通常の週足チャートを表示
-                st.plotly_chart(fig, width='stretch', key=f"chart_{ticker}")
-            else:
-                # 月足ファイル表示時は月足をメインに表示、週足は補助として右側に表示
-                c1, c2 = st.columns([1, 1])
-                # 月足チャート作成（メイン）
-                mfig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3], subplot_titles=(f'{ticker} 月足チャート', '出来高'))
-                mfig.add_trace(go.Candlestick(x=month_data.index, open=month_data['Open'], high=month_data['High'], low=month_data['Low'], close=month_data['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue'), row=1, col=1)
-                # 単一表示側の月足も同様に MA9/MA24 を優先表示
+                if change_pct_display is None:
+                    try:
+                        prev_close = float(month_data['Close'].iloc[-2])
+                        change_pct_display = (latest_close - prev_close) / prev_close * 100.0 if prev_close != 0 else 0.0
+                    except Exception:
+                        change_pct_display = 0.0
+                if volume_ratio_display is None:
+                    try:
+                        vols = month_data['Volume'].astype(float)
+                        avg_vol = float(vols.iloc[:-1].tail(20).mean()) if len(vols) > 1 else 0.0
+                        volume_ratio_display = (float(month_data['Volume'].iloc[-1]) / avg_vol) if avg_vol > 0 else 0.0
+                    except Exception:
+                        volume_ratio_display = 0.0
+
+                st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}  —  前日比: {change_pct_display:+.2f}% · 出来高倍率: {volume_ratio_display:.2f}x")
+                mfig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.75, 0.25])
+                mfig.add_trace(go.Candlestick(x=month_data.index, open=month_data['Open'], high=month_data['High'], low=month_data['Low'], close=month_data['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue', showlegend=False), row=1, col=1)
                 try:
                     if 'MA9' in sel_name or 'MA9_MA24' in sel_name or 'GoldenCross' in sel_name:
                         ma9_mon = month_data['Close'].rolling(window=9).mean()
                         ma24_mon = month_data['Close'].rolling(window=24).mean()
-                        mfig.add_trace(go.Scatter(x=month_data.index, y=ma9_mon, name='MA9(months)', line=dict(color='green', width=2)), row=1, col=1)
-                        mfig.add_trace(go.Scatter(x=month_data.index, y=ma24_mon, name='MA24(months)', line=dict(color='purple', width=2)), row=1, col=1)
+                        mfig.add_trace(go.Scatter(x=month_data.index, y=ma9_mon, name='MA9(months)', line=dict(color='green', width=1.5), showlegend=True), row=1, col=1)
+                        mfig.add_trace(go.Scatter(x=month_data.index, y=ma24_mon, name='MA24(months)', line=dict(color='purple', width=1.5), showlegend=True), row=1, col=1)
                     else:
-                        mfig.add_trace(go.Scatter(x=month_data.index, y=month_data['Close'].rolling(12).mean(), name='MA12(months)', line=dict(color='orange', width=2)), row=1, col=1)
+                        mfig.add_trace(go.Scatter(x=month_data.index, y=month_data['Close'].rolling(12).mean(), name='MA12', line=dict(color='orange', width=1), showlegend=False), row=1, col=1)
                 except Exception:
-                    mfig.add_trace(go.Scatter(x=month_data.index, y=month_data['Close'].rolling(12).mean(), name='MA12(months)', line=dict(color='orange', width=2)), row=1, col=1)
-                mcolors = ['red' if month_data['Close'].iloc[i] >= month_data['Open'].iloc[i] else 'blue' for i in range(len(month_data))]
-                mfig.add_trace(go.Bar(x=month_data.index, y=month_data['Volume'], name='出来高', marker_color=mcolors, showlegend=False), row=2, col=1)
-                mfig.update_layout(height=600, xaxis_rangeslider_visible=False, hovermode='x unified', template='plotly_white', showlegend=True)
-                mfig.update_yaxes(title_text="株価 (¥)", row=1, col=1)
-                mfig.update_yaxes(title_text="出来高", row=2, col=1)
-                mfig.update_xaxes(title_text="日付", row=2, col=1)
-                with c1:
-                    st.plotly_chart(mfig, width='stretch', key=f"chart_month_{ticker}")
-                # 右側に週足（補助）を表示
-                with c2:
-                    st.plotly_chart(fig, width='stretch', key=f"chart_week_{ticker}")
-        else:
-            st.plotly_chart(fig, width='stretch', key=f"chart_{ticker}")
-        
- # test
+                    mfig.add_trace(go.Scatter(x=month_data.index, y=month_data['Close'].rolling(12).mean(), name='MA12', line=dict(color='orange', width=1), showlegend=False), row=1, col=1)
+
+                mcolors = ['red' if month_data['Close'].iloc[k] >= month_data['Open'].iloc[k] else 'blue' for k in range(len(month_data))]
+                mfig.add_trace(go.Bar(x=month_data.index, y=month_data['Volume'], marker_color=mcolors, showlegend=False), row=2, col=1)
+                mfig.update_layout(height=300, margin=dict(l=30, r=10, t=20, b=20), xaxis_rangeslider_visible=False, hovermode='x unified', template='plotly_white', font=dict(size=8))
+                mfig.update_yaxes(title_text="", row=1, col=1)
+                mfig.update_yaxes(title_text="", row=2, col=1)
+                mfig.update_xaxes(showticklabels=False, row=1, col=1)
+                mfig.update_xaxes(showticklabels=False, row=2, col=1)
+                st.plotly_chart(mfig, width='stretch', key=f"chart_grid_month_{ticker}")
+
+            elif is_day_file:
+                d = None
+                try:
+                    d = load_ticker_from_cache(ticker, cache_dir=str(data_cache_dir))
+                    if d is not None and len(d) >= 60:
+                        d = d.tail(60)
+                    else:
+                        d = yf.Ticker(ticker).history(period='90d', interval='1d')
+                except Exception:
+                    d = yf.Ticker(ticker).history(period='90d', interval='1d')
+
+                if d is None or d.empty:
+                    st.warning(f'{ticker}: 日足データ取得失敗')
+                    continue
+
+                latest_close = price_map.get(str(ticker)) if price_map else None
+                if latest_close is None:
+                    latest_close = d['Close'].iloc[-1]
+
+                change_pct_display = None
+                volume_ratio_display = None
+                try:
+                    if 'ticker' in df.columns:
+                        matches = df[df['ticker'].astype(str) == str(ticker)]
+                        if len(matches) > 0:
+                            row = matches.iloc[-1]
+                            for k in ('前日比(%)', '前日比', 'price_change_pct', 'change_pct'):
+                                if k in row.index:
+                                    try:
+                                        change_pct_display = float(row[k])
+                                        break
+                                    except Exception:
+                                        pass
+                            for k in ('出来高倍率', 'volume_ratio', '出来高比', 'vol_ratio'):
+                                if k in row.index:
+                                    try:
+                                        volume_ratio_display = float(row[k])
+                                        break
+                                    except Exception:
+                                        pass
+                except Exception:
+                    pass
+
+                if change_pct_display is None:
+                    try:
+                        prev_close = float(d['Close'].iloc[-2])
+                        change_pct_display = (latest_close - prev_close) / prev_close * 100.0 if prev_close != 0 else 0.0
+                    except Exception:
+                        change_pct_display = 0.0
+                if volume_ratio_display is None:
+                    try:
+                        vols = d['Volume'].astype(float)
+                        avg_vol = float(vols.iloc[:-1].tail(20).mean()) if len(vols) > 1 else 0.0
+                        volume_ratio_display = (float(d['Volume'].iloc[-1]) / avg_vol) if avg_vol > 0 else 0.0
+                    except Exception:
+                        volume_ratio_display = 0.0
+
+                st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}  —  前日比: {change_pct_display:+.2f}% · 出来高倍率: {volume_ratio_display:.2f}x")
+                fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.75, 0.25])
+                fig.add_trace(go.Candlestick(x=d.index, open=d['Open'], high=d['High'], low=d['Low'], close=d['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue', showlegend=False), row=1, col=1)
+                fig.add_trace(go.Scatter(x=d.index, y=d['Close'].rolling(25).mean(), name='MA25', line=dict(color='orange', width=1), showlegend=False), row=1, col=1)
+                fig.add_trace(go.Scatter(x=d.index, y=d['Close'].rolling(75).mean(), name='MA75', line=dict(color='magenta', width=1), showlegend=False), row=1, col=1)
+                colors = ['red' if d['Close'].iloc[k] >= d['Open'].iloc[k] else 'blue' for k in range(len(d))]
+                fig.add_trace(go.Bar(x=d.index, y=d['Volume'], marker_color=colors, showlegend=False), row=2, col=1)
+                fig.update_layout(height=300, margin=dict(l=30, r=10, t=20, b=20), xaxis_rangeslider_visible=False, hovermode='x unified', template='plotly_white', font=dict(size=8))
+                fig.update_yaxes(title_text="", row=1, col=1)
+                fig.update_yaxes(title_text="", row=2, col=1)
+                fig.update_xaxes(showticklabels=False, row=1, col=1)
+                fig.update_xaxes(showticklabels=False, row=2, col=1)
+                st.plotly_chart(fig, width='stretch', key=f"chart_grid_day_{ticker}")
+
+            else:
+                data = fetch_data(ticker)
+                if data is None:
+                    st.warning(f"{ticker}: データ取得失敗")
+                    continue
+
+                latest_close = price_map.get(str(ticker)) if price_map else None
+                if latest_close is None:
+                    latest_close = data['Close'].iloc[-1]
+
+                change_pct_display = None
+                volume_ratio_display = None
+                try:
+                    if 'ticker' in df.columns:
+                        matches = df[df['ticker'].astype(str) == str(ticker)]
+                        if len(matches) > 0:
+                            row = matches.iloc[-1]
+                            for k in ('前日比(%)', '前日比', 'price_change_pct', 'change_pct'):
+                                if k in row.index:
+                                    try:
+                                        change_pct_display = float(row[k])
+                                        break
+                                    except Exception:
+                                        pass
+                            for k in ('出来高倍率', 'volume_ratio', '出来高比', 'vol_ratio'):
+                                if k in row.index:
+                                    try:
+                                        volume_ratio_display = float(row[k])
+                                        break
+                                    except Exception:
+                                        pass
+                except Exception:
+                    pass
+
+                if change_pct_display is None:
+                    try:
+                        prev_close = float(data['Close'].iloc[-2])
+                        change_pct_display = (latest_close - prev_close) / prev_close * 100.0 if prev_close != 0 else 0.0
+                    except Exception:
+                        change_pct_display = 0.0
+                if volume_ratio_display is None:
+                    try:
+                        vols = data['Volume'].astype(float)
+                        avg_vol = float(vols.iloc[:-1].tail(20).mean()) if len(vols) > 1 else 0.0
+                        volume_ratio_display = (float(data['Volume'].iloc[-1]) / avg_vol) if avg_vol > 0 else 0.0
+                    except Exception:
+                        volume_ratio_display = 0.0
+
+                st.markdown(f"**{ticker}**  ¥{latest_close:,.0f}  —  前日比: {change_pct_display:+.2f}% · 出来高倍率: {volume_ratio_display:.2f}x")
+                fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.75, 0.25])
+                fig.add_trace(go.Candlestick(x=data.index, open=data['Open'], high=data['High'], low=data['Low'], close=data['Close'], name='価格', increasing_line_color='red', decreasing_line_color='blue', showlegend=False), row=1, col=1)
+                fig.add_trace(go.Scatter(x=data.index, y=data['Close'].rolling(52).mean(), name='MA52', line=dict(color='orange', width=1), showlegend=False), row=1, col=1)
+                colors = ['red' if data['Close'].iloc[k] >= data['Open'].iloc[k] else 'blue' for k in range(len(data))]
+                fig.add_trace(go.Bar(x=data.index, y=data['Volume'], marker_color=colors, showlegend=False), row=2, col=1)
+                fig.update_layout(height=300, margin=dict(l=30, r=10, t=20, b=20), xaxis_rangeslider_visible=False, hovermode='x unified', template='plotly_white', font=dict(size=8))
+                fig.update_yaxes(title_text="", row=1, col=1)
+                fig.update_yaxes(title_text="", row=2, col=1)
+                fig.update_xaxes(showticklabels=False, row=1, col=1)
+                fig.update_xaxes(showticklabels=False, row=2, col=1)
+                st.plotly_chart(fig, width='stretch', key=f"chart_grid_{ticker}")
