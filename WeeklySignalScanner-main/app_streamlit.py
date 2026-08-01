@@ -633,6 +633,8 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
     ma75_cache_only = st.checkbox('日足MA75用: キャッシュのみでスキャン（data/*.parquet のみ）', value=True, key='ma75_cache_only')
     ma75_manual_tickers = st.text_input('日足MA75用手動ティッカー (カンマ区切り、例: 7201,7202 または 7201.T,7202.T)', value='', key='ma75_manual_tickers')
     ma75_lookback_days = st.number_input('日足MA75用: 直近何営業日以内の高値を確認するか', min_value=1, max_value=20, value=7, step=1, key='ma75_lookback_days')
+    ma75_use_as_of = st.checkbox('日足MA75用: 過去日を基準に抽出する', value=False, key='ma75_use_as_of')
+    ma75_as_of_date = st.date_input('日足MA75用: 抽出基準日（過去日）', value=datetime.date.today(), key='ma75_as_of_date') if ma75_use_as_of else None
     if st.button('日足: MA75 条件で抽出ファイルを作成', key='ma75_extract_button'):
         import csv, traceback
         from data_fetcher import load_ticker_from_cache
@@ -683,6 +685,9 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                     if not isinstance(df.index, _pd.DatetimeIndex):
                         df.index = _pd.to_datetime(df.index)
                     df = df.sort_index()
+                    if ma75_use_as_of and ma75_as_of_date is not None:
+                        cutoff = _pd.Timestamp(ma75_as_of_date)
+                        df = df[df.index <= cutoff].copy()
                     df = df.dropna(subset=['Open', 'High', 'Low', 'Close'])
                     if df.empty or len(df) < 80:
                         continue
@@ -1261,6 +1266,9 @@ if 'ticker' not in df.columns:
     st.stop()
 
 ticker_list = df['ticker'].tolist()
+if not ticker_list:
+    st.info('選択した結果ファイルには銘柄が含まれていません。別の結果ファイルを選択してください。')
+    st.stop()
 
 # 選択ファイルが月足ファイルかどうかを判定（ファイル名またはカラムで判定）
 is_month_file = False
@@ -1280,12 +1288,12 @@ except Exception:
 # 表示は常に 10銘柄一覧表示を使用し、単一銘柄モードは削除
 st.sidebar.caption("表示: 10銘柄一覧")
 # 10銘柄ずつページング
-total_pages = math.ceil(len(ticker_list) / 10)
-page = st.sidebar.number_input("ページ", min_value=1, max_value=total_pages, value=1, step=1)
+max_pages = max(1, math.ceil(len(ticker_list) / 10))
+page = st.sidebar.number_input("ページ", min_value=1, max_value=max_pages, value=1, step=1)
 start_idx = (page - 1) * 10
 end_idx = min(start_idx + 10, len(ticker_list))
 selected_tickers = ticker_list[start_idx:end_idx]
-st.sidebar.info(f"ページ {page}/{total_pages} (銘柄 {start_idx+1}〜{end_idx})")
+st.sidebar.info(f"ページ {page}/{max_pages} (銘柄 {start_idx+1}〜{end_idx})")
 
 # 2列レイアウトで表示
 cols_per_row = 2
