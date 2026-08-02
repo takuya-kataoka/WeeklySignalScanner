@@ -4,11 +4,27 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import glob
 import os
+import time
 import yfinance as yf
 from pathlib import Path
 import math
 import datetime
 import re
+
+
+def safe_yf_history(ticker: str, period: str = '1y', interval: str = '1d', max_retries: int = 3):
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            return yf.Ticker(ticker).history(period=period, interval=interval)
+        except Exception as e:
+            last_error = e
+            if getattr(e, '__class__', type(e)).__name__ == 'YFRateLimitError':
+                if attempt < max_retries - 1:
+                    time.sleep((attempt + 1) * 2)
+                    continue
+            return None
+    return None
 
 
 def normalize_ticker_input(text: str):
@@ -277,7 +293,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
 
                     fetched_ext = False
                     if df is None:
-                        mdf = yf.Ticker(t).history(period='5y', interval='1mo')
+                        mdf = safe_yf_history(t, period='5y', interval='1mo')
                     else:
                         if not isinstance(df.index, _pd.DatetimeIndex):
                             df.index = _pd.to_datetime(df.index)
@@ -287,7 +303,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                     # If monthly series is too short for MA24, try fetching extended monthly history from yfinance
                     try:
                         if mdf is None or len(mdf) < 24:
-                            ext = yf.Ticker(t).history(period='10y', interval='1mo')
+                            ext = safe_yf_history(t, period='10y', interval='1mo')
                             if ext is not None and not ext.empty and len(ext) > (len(mdf) if mdf is not None else 0):
                                 mdf = ext
                                 fetched_ext = True
@@ -479,153 +495,6 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
             st.sidebar.error(f'自動コミット中に例外が発生しました: {e}')
 
     st.write('---')
-    st.markdown('### 短期急騰: 本物の初動スクリーナー（日足表示）')
-    st.markdown('''- 条件: 直近 40 日間で出来高急増と 5%以上上昇した銘柄を検出します。
-- 判定: 25 日移動平均乖離率が 20% 未満、出来高倍率 3 倍以上
-- 入力: 既存キャッシュまたは手動ティッカー入力''')
-    momentum_cache_only = st.checkbox('キャッシュ優先で判定（data/*.parquet を優先）', value=True, key='momentum_cache_only')
-    momentum_sample = st.text_input('手動ティッカー（カンマ区切り、例: 4179.T,8105.T）', value='', key='momentum_sample')
-    if st.button('短期_初動スクリーニング実行', key='momentum_button'):
-        import csv, traceback
-        from data_fetcher import load_ticker_from_cache
-        import pandas as _pd
-
-        data_cache_dir = base_dir.parent / 'data'
-        cached_files = sorted([p.stem for p in data_cache_dir.glob('*.parquet')]) if data_cache_dir.exists() else []
-        # build target tickers
-        targets = []
-        if momentum_sample and momentum_sample.strip():
-            parts = [p.strip() for p in re.split('[,\n;]+', momentum_sample) if p.strip()]
-            parsed = []
-            for p in parts:
-                token = p
-                if re.fullmatch(r"\d{1,4}", token):
-                    token = f"{int(token):04d}.T"
-                else:
-                    if not token.upper().endswith('.T'):
-                        token = token.upper()
-                parsed.append(token)
-            targets = parsed
-        else:
-            targets = cached_files if (momentum_cache_only and cached_files) else cached_files if cached_files else []
-
-        if not targets:
-            st.info('対象銘柄が見つかりません。data/*.parquet がない場合は手動でティッカーを入力してください。')
-        else:
-            results = []
-            errors = []
-            with st.spinner(f'短期スクリーニング中... {len(targets)} 銘柄'):
-                for idx, t in enumerate(targets):
-                    try:
-                        # Try cache first
-                        df = None
-                        try:
-                            df = load_ticker_from_cache(t, cache_dir=str(data_cache_dir))
-                        except Exception:
-                            df = None
-
-                        if df is None or len(df) < 25:
-                            # fetch recent 40 trading days to be safe
-                            mdf = yf.Ticker(t).history(period='40d', interval='1d')
-                        else:
-                            # ensure datetime index and sort
-                            if not isinstance(df.index, _pd.DatetimeIndex):
-                                df.index = _pd.to_datetime(df.index)
-                            df = df.sort_index()
-                            # take last 40 rows of daily data if available
-                            mdf = df.tail(40)
-
-                        if mdf is None or mdf.empty or len(mdf) < 25:
-                            continue
-
-                        # Ensure numeric
-                        mdf = mdf.dropna(subset=['Close', 'Volume'])
-                        if mdf.empty or len(mdf) < 25:
-                            continue
-
-                        closes = mdf['Close'].astype(float)
-                        volumes = mdf['Volume'].astype(float)
-
-                        today_close = float(closes.iloc[-1])
-                        prev_close = float(closes.iloc[-2])
-                        price_change_pct = (today_close - prev_close) / prev_close * 100.0
-
-                        # past 20 trading days average volume excluding today
-                        if len(volumes) >= 22:
-                            avg_volume_20d = float(volumes.iloc[-22:-2].mean())
-                        else:
-                            avg_volume_20d = float(volumes.iloc[:-1].mean()) if len(volumes) > 1 else 0.0
-                        today_volume = float(volumes.iloc[-1])
-                        volume_ratio = (today_volume / avg_volume_20d) if avg_volume_20d > 0 else 0.0
-
-                        # MA25
-                        ma25 = closes.rolling(window=25).mean()
-                        ma25_now = float(ma25.iloc[-1]) if not _pd.isna(ma25.iloc[-1]) else None
-                        deviation_from_ma25 = ((today_close - ma25_now) / ma25_now * 100.0) if ma25_now and ma25_now != 0 else 9999.0
-
-                        condition_price = price_change_pct >= 5.0
-                        condition_volume = volume_ratio >= 3.0
-                        condition_first_move = deviation_from_ma25 < 20.0
-
-                        if condition_price and condition_volume and condition_first_move:
-                            results.append({
-                                'コード': t,
-                                '本日終値': round(today_close, 1),
-                                '前日比(%)': round(price_change_pct, 2),
-                                '出来高倍率': round(volume_ratio, 2),
-                                '25日線乖離率(%)': round(deviation_from_ma25, 2)
-                            })
-                    except Exception as e:
-                        errors.append((t, str(e), traceback.format_exc()))
-                        continue
-
-            # 保存と表示
-            os.makedirs(results_dir, exist_ok=True)
-            if results:
-                df_res = pd.DataFrame(results)
-                ts = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d_%H%M%S')
-                out_name = f"短期_初動_{ts}.csv"
-                out_path = results_dir / out_name
-                df_res.to_csv(out_path, index=False, encoding='utf-8-sig')
-                st.success(f'抽出結果を保存: {out_path}（{len(df_res)} 件）')
-                st.dataframe(df_res)
-
-                # 日足チャートを下に表示（各銘柄）
-                for r in results:
-                    t = r['コード']
-                    # try to get recent daily data for chart (60d)
-                    try:
-                        d = None
-                        try:
-                            d = load_ticker_from_cache(t, cache_dir=str(data_cache_dir))
-                            if d is not None and len(d) >= 60:
-                                d = d.tail(60)
-                            else:
-                                d = yf.Ticker(t).history(period='90d', interval='1d')
-                        except Exception:
-                            d = yf.Ticker(t).history(period='90d', interval='1d')
-
-                        if d is None or d.empty:
-                            st.warning(f'{t}: 日足データ取得失敗')
-                            continue
-                        # plot daily candlestick with MA25 and MA75
-                        ma25 = d['Close'].rolling(window=25).mean()
-                        ma75 = d['Close'].rolling(window=75).mean()
-                        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3])
-                        fig.add_trace(go.Candlestick(x=d.index, open=d['Open'], high=d['High'], low=d['Low'], close=d['Close'], name='価格'), row=1, col=1)
-                        fig.add_trace(go.Scatter(x=d.index, y=ma25, name='MA25', line=dict(color='orange', width=1.5)), row=1, col=1)
-                        fig.add_trace(go.Scatter(x=d.index, y=ma75, name='MA75', line=dict(color='magenta', width=1.5, dash='dot')), row=1, col=1)
-                        colors = ['red' if d['Close'].iloc[i] >= d['Open'].iloc[i] else 'blue' for i in range(len(d))]
-                        fig.add_trace(go.Bar(x=d.index, y=d['Volume'], marker_color=colors, showlegend=False), row=2, col=1)
-                        fig.update_layout(height=400, xaxis_rangeslider_visible=False, template='plotly_white')
-                        st.markdown(f"**{t}**  ¥{r['本日終値']:,}")
-                        st.plotly_chart(fig, use_container_width=True)
-                    except Exception:
-                        continue
-            else:
-                st.info('本日の条件に合致する銘柄は見つかりませんでした。')
-
-    st.write('---')
     st.markdown('### 日足抽出: 現在終値が MA75 以上・直近7営業日でMA75の1.5倍高値')
     st.markdown('''- 判定データ: 日足 (1D) の Close / High を使用します（週足ではありません）
 - 条件: 現在終値が MA75 以上
@@ -670,7 +539,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
                         df = None
 
                     if df is None or len(df) < 80:
-                        df = yf.Ticker(t).history(period='120d', interval='1d')
+                        df = safe_yf_history(t, period='120d', interval='1d')
 
                     # 直近の最新足を含めて判定するため、必要に応じて 1d データを再取得
                     if df is not None and not df.empty and len(df) >= 80:
@@ -921,7 +790,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
             for i, t in enumerate(tickers):
                 try:
                     # 月足を十分量取得（3年）
-                    dfm = yf.Ticker(t).history(period='3y', interval='1mo')
+                    dfm = safe_yf_history(t, period='3y', interval='1mo')
                     if dfm is None or dfm.empty or len(dfm) < 2:
                         continue
                     L = len(dfm)
@@ -1302,11 +1171,11 @@ cols_per_row = 2
 @st.cache_data(ttl=3600)
 def fetch_data(ticker):
     try:
-        data = yf.Ticker(ticker).history(period='2y', interval='1wk')
-        if data.empty:
+        data = safe_yf_history(ticker, period='2y', interval='1wk')
+        if data is None or data.empty:
             return None
         return data
-    except Exception as e:
+    except Exception:
         return None
 
 
@@ -1314,8 +1183,8 @@ def fetch_data(ticker):
 @st.cache_data(ttl=3600)
 def fetch_month_data(ticker):
     try:
-        data = yf.Ticker(ticker).history(period='5y', interval='1mo')
-        if data.empty:
+        data = safe_yf_history(ticker, period='5y', interval='1mo')
+        if data is None or data.empty:
             return None
         return data
     except Exception:
@@ -1409,14 +1278,12 @@ for i in range(0, len(selected_tickers), cols_per_row):
                     if d is not None and len(d) >= 60:
                         d = d.tail(60)
                     else:
-                        d = yf.Ticker(ticker).history(period='90d', interval='1d')
+                        d = safe_yf_history(ticker, period='90d', interval='1d')
                 except Exception:
-                    d = yf.Ticker(ticker).history(period='90d', interval='1d')
-
+                    d = safe_yf_history(ticker, period='90d', interval='1d')
                 if d is None or d.empty:
-                    st.warning(f'{ticker}: 日足データ取得失敗')
+                    st.warning(f"{ticker}: 日足データ取得失敗")
                     continue
-
                 latest_close = price_map.get(str(ticker)) if price_map else None
                 if latest_close is None:
                     latest_close = d['Close'].iloc[-1]
