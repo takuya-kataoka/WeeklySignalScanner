@@ -1,4 +1,6 @@
-streamlit
+streamlit==1.52.2
+starlette==0.46.2
+uvicorn==0.34.3
 yfinance
 pandas
 numpy
