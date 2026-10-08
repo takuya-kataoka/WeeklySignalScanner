@@ -6,3 +6,14 @@ WeeklySignalScanner-main/data/
 __pycache__/
 outputs/
 *.parquet
+
+# Backups / runtime artifacts
+*.bak
+*.bak[0-9]
+nohup.out
+data_backup_*/
+**/data_backup_*/
+WeeklySignalScanner-main/outputs/
+
+# Local secrets (use secrets.toml.example instead)
+.streamlit/secrets.toml

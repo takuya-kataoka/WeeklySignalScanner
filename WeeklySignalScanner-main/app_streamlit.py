@@ -176,7 +176,11 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
         else:
             if fetch_mode.startswith('すべての銘柄'):
                 # 範囲内の全銘柄を対象にする
-                candidates = [f"{i:04d}.T" for i in range(start_code, end_code + 1)]
+                _uni = data_fetcher.load_universe()
+                if _uni:
+                    candidates = [t for t in _uni if start_code <= int(t[:4]) <= end_code]
+                else:
+                    candidates = [f"{i:04d}.T" for i in range(start_code, end_code + 1)]
                 if not allow_excluded:
                     try:
                         excluded = getattr(data_fetcher, 'EXCLUDED_TICKERS', set())
@@ -203,7 +207,7 @@ with st.sidebar.expander("管理: データ取得・スキャン・予想", expa
             st.stop()
 
         targets = []
-        today = _pd.Timestamp.today().normalize()
+        today = data_fetcher._last_expected_trading_day()
         if fetch_mode.startswith('data に存在する'):
             targets = candidates
         elif fetch_mode.startswith('今日の日付が無い'):
