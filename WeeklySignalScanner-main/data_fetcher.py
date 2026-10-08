@@ -32,119 +32,174 @@ def _ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
 
-def fetch_and_save_tickers(start=1000, end=9999, batch_size=200, period='6mo', interval='1d', out_dir=None, retry_count=2, sleep_between_batches=1.0, allow_excluded=False, verbose=False):
-    """
-    指定範囲のティッカー（4桁コードに .T を付与）をバッチで取得して、各ティッカーごとに Parquet ファイルとして保存します。
+_OHLCV = ['Open', 'High', 'Low', 'Close', 'Volume']
+_UNIVERSE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'universe_jp.txt')
 
-    デフォルトで半年分（period='6mo'）を取得します。
+
+def load_universe(path=None):
+    """実在する日本株ティッカー一覧（例: '7203.T'）を返す。無ければ空リスト。
+
+    9000 コードの総当たりは実在しないコードへのリクエストが半数以上を占めるため、
+    同梱の universe_jp.txt を取得対象にする。
+    """
+    path = path or _UNIVERSE_FILE
+    try:
+        with open(path, encoding='utf-8') as f:
+            return [ln.strip() for ln in f if ln.strip()]
+    except OSError:
+        return []
+
+
+def _strip_tz(df):
+    idx = pd.to_datetime(df.index)
+    if getattr(idx, 'tz', None) is not None:
+        idx = idx.tz_localize(None)
+    df = df.copy()
+    df.index = idx
+    return df
+
+
+def _extract(df, ticker, single):
+    """yf.download の結果から 1 銘柄分の OHLCV を取り出す。取れなければ None。"""
+    if df is None or getattr(df, 'empty', True):
+        return None
+    if isinstance(df.columns, pd.MultiIndex):
+        if ticker in df.columns.get_level_values(0):
+            sub = df[ticker]
+        elif ticker in df.columns.get_level_values(1):
+            sub = df.xs(ticker, level=1, axis=1)
+        else:
+            return None
+    elif single:
+        sub = df
+    else:
+        return None
+    cols = [c for c in _OHLCV if c in sub.columns]
+    if 'Close' not in cols:
+        return None
+    sub = sub[cols].dropna(subset=['Close'])
+    return None if sub.empty else _strip_tz(sub)
+
+
+def _last_expected_trading_day():
+    """直近の営業日（土日のみ考慮、祝日は考慮しない）。"""
+    today = pd.Timestamp.today().normalize()
+    return today if today.weekday() < 5 else today - pd.offsets.BDay(1)
+
+
+def _download(batch, retry_count, sleep, verbose, **kwargs):
+    attempt = 0
+    while attempt <= retry_count:
+        try:
+            return yf.download(batch, progress=False, group_by='ticker', auto_adjust=False, **kwargs)
+        except Exception as e:
+            attempt += 1
+            if attempt > retry_count:
+                if verbose:
+                    print(f"batch download failed after {attempt} attempts: {e}")
+                return None
+            wait = sleep * (2 ** (attempt - 1))
+            if verbose:
+                print(f"batch download error, retrying after {wait}s: {e}")
+            time.sleep(wait)
+
+
+def _save(ticker, new, out_dir, existing, verbose):
+    """new を保存する。existing があれば結合（重複日は new を優先）。"""
+    if existing is not None:
+        new = pd.concat([existing, new[[c for c in existing.columns if c in new.columns]]])
+        new = new[~new.index.duplicated(keep='last')].sort_index()
+    path = os.path.join(out_dir, f"{ticker}.parquet")
+    new.to_parquet(path)
+    if verbose:
+        print(f"Saved {ticker} -> {path}")
+
+
+def _fetch_group(codes, existing, out_dir, batch_size, retry_count, sleep, verbose, **dl_kwargs):
+    total_batches = (len(codes) - 1) // batch_size + 1 if codes else 0
+    for batch_idx, i in enumerate(range(0, len(codes), batch_size), start=1):
+        batch = codes[i:i + batch_size]
+        if verbose:
+            print(f"Fetching batch {batch_idx}/{total_batches} (size={len(batch)})")
+        df = _download(batch, retry_count, sleep, verbose, **dl_kwargs)
+        if df is None or getattr(df, 'empty', True):
+            # 銘柄ごとの再取得はしない（存在しないコードで 1 件ずつ待つのが遅さの主因だった）
+            if verbose:
+                print("Batch returned no data — skipped")
+        else:
+            for t in batch:
+                try:
+                    sub = _extract(df, t, single=len(batch) == 1)
+                    if sub is None:
+                        if verbose:
+                            print(f"{t}: no valid data, skipping save")
+                        continue
+                    _save(t, sub, out_dir, existing.get(t), verbose)
+                except Exception as e:
+                    if verbose:
+                        print(f"{t}: error saving - {e}")
+        if batch_idx < total_batches:
+            time.sleep(sleep)
+
+
+def fetch_and_save_list(tickers, batch_size=200, period='6mo', interval='1d', out_dir=None, retry_count=2, sleep_between_batches=1.0, allow_excluded=False, verbose=False, incremental=True):
+    """
+    指定されたティッカー一覧をバッチで取得して Parquet に保存します。
+    `tickers` は ['7201.T', '7202.T', ...] の形式のリストを想定します。
+
+    incremental=True（日足のみ）: 保存済みの銘柄は最終日の少し前から差分だけ取得して結合し、
+    すでに直近営業日まである銘柄はスキップします。未保存の銘柄は `period` 分を取得します。
     """
     if out_dir is None:
         out_dir = config.DATA_DIR
     _ensure_dir(out_dir)
 
-    # build list of codes; optionally respect EXCLUDED_TICKERS
-    all_codes = [f"{i:04d}.T" for i in range(start, end + 1)]
-    if not allow_excluded:
-        all_codes = [c for c in all_codes if c not in EXCLUDED_TICKERS]
-    total = len(all_codes)
-    total_batches = (total - 1) // batch_size + 1
-
-    for batch_idx, i in enumerate(range(0, total, batch_size), start=1):
-        batch = all_codes[i:i+batch_size]
+    codes = list(tickers) if allow_excluded else [t for t in tickers if t not in EXCLUDED_TICKERS]
+    if not codes:
         if verbose:
-            print(f"Fetching batch {batch_idx}/{total_batches} (size={len(batch)})")
+            print('No tickers to fetch')
+        return
 
-        attempt = 0
-        df = None
-        while attempt <= retry_count:
+    fresh, stale, existing = [], [], {}
+    if incremental and interval == '1d':
+        expected = _last_expected_trading_day()
+        for t in codes:
+            old = load_ticker_from_cache(t, cache_dir=out_dir)
+            if old is None or getattr(old, 'empty', True):
+                fresh.append(t)
+                continue
             try:
-                df = yf.download(batch, period=period, interval=interval, progress=False, group_by='ticker', auto_adjust=False)
-                break
-            except Exception as e:
-                attempt += 1
-                if attempt > retry_count:
-                    if verbose:
-                        print(f"batch download failed after {attempt} attempts: {e}")
-                else:
-                    wait = sleep_between_batches * (2 ** (attempt - 1))
-                    if verbose:
-                        print(f"batch download error, retrying after {wait}s: {e}")
-                    time.sleep(wait)
+                old = _strip_tz(old)
+                last = old.index.max().normalize()
+            except Exception:
+                fresh.append(t)
+                continue
+            if last >= expected:
+                continue  # 最新
+            existing[t] = old
+            stale.append((t, last))
+        if verbose:
+            print(f"new={len(fresh)} update={len(stale)} up-to-date={len(codes) - len(fresh) - len(stale)}")
+    else:
+        fresh = codes
 
-        # If batch df is empty, fallback to per-ticker
-        if df is None or (hasattr(df, 'empty') and df.empty):
-            if verbose:
-                print("Batch empty — falling back to per-ticker fetch")
-            for t in batch:
-                try:
-                    single = yf.Ticker(t).history(period=period, interval=interval)
-                    if single is None or getattr(single, 'empty', True):
-                        if verbose:
-                            print(f"{t}: no data")
-                        continue
-                    # keep common columns
-                    cols = [c for c in ['Open', 'High', 'Low', 'Close', 'Volume'] if c in single.columns]
-                    valid = single.dropna(subset=['Close']) if 'Close' in single.columns else single
-                    if valid is None or getattr(valid, 'empty', True):
-                        if verbose:
-                            print(f"{t}: no valid Close values, skipping save")
-                        continue
-                    path = os.path.join(out_dir, f"{t}.parquet")
-                    single[cols].to_parquet(path)
-                    if verbose:
-                        print(f"Saved {t} -> {path}")
-                except Exception as e:
-                    if verbose:
-                        print(f"{t}: fetch error {e}")
-                time.sleep(sleep_between_batches)
-            continue
+    if stale:
+        start = (min(last for _, last in stale) - pd.Timedelta(days=5)).strftime('%Y-%m-%d')
+        _fetch_group([t for t, _ in stale], existing, out_dir, batch_size, retry_count, sleep_between_batches, verbose, start=start, interval=interval)
+    if fresh:
+        _fetch_group(fresh, {}, out_dir, batch_size, retry_count, sleep_between_batches, verbose, period=period, interval=interval)
 
-        # Parse batch df and save per-ticker files
-        for t in batch:
-            try:
-                series_df = None
-                if isinstance(df.columns, pd.MultiIndex):
-                    # check ('Close', t) or (t, 'Close') shapes or similar
-                    if ('Close', t) in df.columns:
-                        series_df = df.xs(t, level=1, axis=1)
-                    elif (t, 'Close') in df.columns:
-                        series_df = df.xs(t, level=0, axis=1)
-                    else:
-                        # search columns that include ticker
-                        cols = [c for c in df.columns if t in str(c)]
-                        if cols:
-                            # select all columns for that ticker
-                            series_df = df[cols]
-                else:
-                    # single dataframe returned — try to find columns that include ticker
-                    possible_cols = [c for c in df.columns if t in str(c)]
-                    if possible_cols:
-                        series_df = df[possible_cols]
 
-                if series_df is None or getattr(series_df, 'empty', True):
-                    # fallback single ticker fetch
-                    single = yf.Ticker(t).history(period=period, interval=interval)
-                    if single is None or getattr(single, 'empty', True):
-                        if verbose:
-                            print(f"{t}: no data (batch+single)")
-                        continue
-                    series_df = single
-
-                # only save if there are valid Close values
-                if 'Close' not in series_df.columns or series_df.dropna(subset=['Close']).empty:
-                    if verbose:
-                        print(f"{t}: no valid Close values, skipping save")
-                    continue
-
-                path = os.path.join(out_dir, f"{t}.parquet")
-                cols = [c for c in ['Open', 'High', 'Low', 'Close', 'Volume'] if c in series_df.columns]
-                series_df[cols].to_parquet(path)
-                if verbose:
-                    print(f"Saved {t} -> {path}")
-            except Exception as e:
-                if verbose:
-                    print(f"{t}: error saving - {e}")
-        time.sleep(sleep_between_batches)
+def fetch_and_save_tickers(start=1000, end=9999, batch_size=200, period='6mo', interval='1d', out_dir=None, retry_count=2, sleep_between_batches=1.0, allow_excluded=False, verbose=False, use_universe=False, incremental=True):
+    """
+    指定範囲のティッカー（4桁コードに .T を付与）をバッチで取得して保存します。
+    use_universe=True なら総当たりせず universe_jp.txt の銘柄のうち範囲内のものだけ取得します。
+    """
+    if use_universe:
+        codes = [t for t in load_universe() if start <= int(t[:4]) <= end]
+    else:
+        codes = [f"{i:04d}.T" for i in range(start, end + 1)]
+    fetch_and_save_list(codes, batch_size=batch_size, period=period, interval=interval, out_dir=out_dir, retry_count=retry_count, sleep_between_batches=sleep_between_batches, allow_excluded=allow_excluded, verbose=verbose, incremental=incremental)
 
 
 def load_ticker_from_cache(ticker, cache_dir=None):
@@ -158,116 +213,3 @@ def load_ticker_from_cache(ticker, cache_dir=None):
         return df
     except Exception:
         return None
-
-
-def fetch_and_save_list(tickers, batch_size=200, period='6mo', interval='1d', out_dir=None, retry_count=2, sleep_between_batches=1.0, allow_excluded=False, verbose=False):
-    """
-    指定されたティッカー一覧をバッチで取得して Parquet に保存します。
-    `tickers` は ['7201.T', '7202.T', ...] の形式のリストを想定します。
-    """
-    if out_dir is None:
-        out_dir = config.DATA_DIR
-    _ensure_dir(out_dir)
-
-    # filter excluded unless allow_excluded is set
-    if allow_excluded:
-        all_codes = list(tickers)
-    else:
-        all_codes = [t for t in tickers if t not in EXCLUDED_TICKERS]
-    total = len(all_codes)
-    if total == 0:
-        if verbose:
-            print('No tickers to fetch')
-        return
-
-    total_batches = (total - 1) // batch_size + 1
-
-    for batch_idx, i in enumerate(range(0, total, batch_size), start=1):
-        batch = all_codes[i:i+batch_size]
-        if verbose:
-            print(f"Fetching batch {batch_idx}/{total_batches} (size={len(batch)})")
-
-        attempt = 0
-        df = None
-        while attempt <= retry_count:
-            try:
-                df = yf.download(batch, period=period, interval=interval, progress=False, group_by='ticker', auto_adjust=False)
-                break
-            except Exception as e:
-                attempt += 1
-                if attempt > retry_count:
-                    if verbose:
-                        print(f"batch download failed after {attempt} attempts: {e}")
-                else:
-                    wait = sleep_between_batches * (2 ** (attempt - 1))
-                    if verbose:
-                        print(f"batch download error, retrying after {wait}s: {e}")
-                    time.sleep(wait)
-
-        # If batch df is empty, fallback to per-ticker
-        if df is None or (hasattr(df, 'empty') and df.empty):
-            if verbose:
-                print("Batch empty — falling back to per-ticker fetch")
-            for t in batch:
-                try:
-                    single = yf.Ticker(t).history(period=period, interval=interval)
-                    if single is None or getattr(single, 'empty', True):
-                        if verbose:
-                            print(f"{t}: no data")
-                        continue
-                    cols = [c for c in ['Open', 'High', 'Low', 'Close', 'Volume'] if c in single.columns]
-                    valid = single.dropna(subset=['Close']) if 'Close' in single.columns else single
-                    if valid is None or getattr(valid, 'empty', True):
-                        if verbose:
-                            print(f"{t}: no valid Close values, skipping save")
-                        continue
-                    path = os.path.join(out_dir, f"{t}.parquet")
-                    single[cols].to_parquet(path)
-                    if verbose:
-                        print(f"Saved {t} -> {path}")
-                except Exception as e:
-                    if verbose:
-                        print(f"{t}: fetch error {e}")
-                time.sleep(sleep_between_batches)
-            continue
-
-        # Parse batch df and save per-ticker files
-        for t in batch:
-            try:
-                series_df = None
-                if isinstance(df.columns, pd.MultiIndex):
-                    if ('Close', t) in df.columns:
-                        series_df = df.xs(t, level=1, axis=1)
-                    elif (t, 'Close') in df.columns:
-                        series_df = df.xs(t, level=0, axis=1)
-                    else:
-                        cols = [c for c in df.columns if t in str(c)]
-                        if cols:
-                            series_df = df[cols]
-                else:
-                    possible_cols = [c for c in df.columns if t in str(c)]
-                    if possible_cols:
-                        series_df = df[possible_cols]
-
-                if series_df is None or getattr(series_df, 'empty', True):
-                    single = yf.Ticker(t).history(period=period, interval=interval)
-                    if single is None or getattr(single, 'empty', True):
-                        if verbose:
-                            print(f"{t}: no data (batch+single)")
-                        continue
-                    series_df = single
-
-                if 'Close' not in series_df.columns or series_df.dropna(subset=['Close']).empty:
-                    if verbose:
-                        print(f"{t}: no valid Close values, skipping save")
-                    continue
-
-                path = os.path.join(out_dir, f"{t}.parquet")
-                cols = [c for c in ['Open', 'High', 'Low', 'Close', 'Volume'] if c in series_df.columns]
-                series_df[cols].to_parquet(path)
-                if verbose:
-                    print(f"Saved {t} -> {path}")
-            except Exception as e:
-                if verbose:
-                    print(f"{t}: error saving - {e}")
-        time.sleep(sleep_between_batches)
