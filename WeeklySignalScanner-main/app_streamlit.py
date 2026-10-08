@@ -104,9 +104,10 @@ results_dir = base_dir / 'outputs' / 'results'
 # 最新の更新日時が上に来るように modification time (mtime) でソート
 all_files = sorted(results_dir.glob('*.csv'), key=lambda p: p.stat().st_mtime, reverse=True) if results_dir.exists() else []
 
-if not all_files:
-    st.error("結果ファイルが見つかりません")
-    st.stop()
+try:
+    results_dir.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
 
 # デフォルトは全銘柄の昇順ソート版があればそれを優先して選択
 default_index = 0
@@ -116,12 +117,16 @@ for i, f in enumerate(all_files):
         default_index = i
         break
 
-selected_file = st.sidebar.selectbox(
-    "結果ファイルを選択",
-    all_files,
-    index=default_index,
-    format_func=lambda x: x.name
-)
+if all_files:
+    selected_file = st.sidebar.selectbox(
+        "結果ファイルを選択",
+        all_files,
+        index=default_index,
+        format_func=lambda x: x.name
+    )
+else:
+    selected_file = None
+    st.sidebar.info("結果ファイルがまだありません。下の「管理」でデータをダウンロードしてスキャンしてください。")
 
 # 管理パネル: データのダウンロード / 抽出ファイル作成 / 予想ページ起動
 with st.sidebar.expander("管理: データ取得・スキャン・予想", expanded=False):
@@ -1040,6 +1045,10 @@ def read_maybe_timestampped_csv(path):
         return pd.read_csv(path)
     except Exception:
         return pd.read_csv(path)
+
+if selected_file is None:
+    st.info("結果ファイルがまだありません。左サイドバーの「管理: データ取得・スキャン・予想」でデータをダウンロードし、抽出スキャンを実行してください。実行後にページを再読み込みすると結果が表示されます。")
+    st.stop()
 
 df = read_maybe_timestampped_csv(selected_file)
 
