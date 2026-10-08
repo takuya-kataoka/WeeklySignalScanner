@@ -72,6 +72,27 @@ st.title(f"📈 週足スクリーナー - MA52 & 陽線包み足 v{version}")
 device_mode = st.sidebar.selectbox('表示デバイス', ['PC', 'Mobile'], index=0)
 IS_MOBILE = (device_mode == 'Mobile')
 
+# 起動時のデータ自動更新（バックグラウンド。プロセスごとに 1 回だけ開始）
+import data_fetcher as _df_mod
+
+
+@st.cache_resource
+def _start_auto_update():
+    return _df_mod.start_background_update(out_dir='data')
+
+
+if st.sidebar.checkbox('起動時にデータを自動更新', value=True):
+    _start_auto_update()
+_fs = _df_mod.FETCH_STATUS
+if _fs['state'] == 'running':
+    _total = max(_fs['total'], 1)
+    st.sidebar.progress(min(_fs['done'] / _total, 1.0), text=f"データ更新中 {_fs['done']}/{_fs['total']}")
+    st.sidebar.button('進捗を更新')
+elif _fs['state'] == 'done':
+    st.sidebar.success('データ更新完了')
+elif _fs['state'] == 'error':
+    st.sidebar.warning(f"データ更新エラー: {_fs['error']}")
+
 # レスポンシブCSSを挿入（モバイル向けにフォントやパディングを調整）
 if IS_MOBILE:
     st.markdown(

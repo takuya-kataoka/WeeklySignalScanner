@@ -1,4 +1,5 @@
 import os
+import threading
 import time
 import yfinance as yf
 import pandas as pd
@@ -115,6 +116,11 @@ def _save(ticker, new, out_dir, existing, verbose):
         print(f"Saved {ticker} -> {path}")
 
 
+# バックグラウンド更新の進捗（アプリのサイドバー表示用）
+FETCH_STATUS = {'state': 'idle', 'total': 0, 'done': 0, 'error': None}
+_status_lock = threading.Lock()
+
+
 def _fetch_group(codes, existing, out_dir, batch_size, retry_count, sleep, verbose, **dl_kwargs):
     total_batches = (len(codes) - 1) // batch_size + 1 if codes else 0
     for batch_idx, i in enumerate(range(0, len(codes), batch_size), start=1):
@@ -138,6 +144,8 @@ def _fetch_group(codes, existing, out_dir, batch_size, retry_count, sleep, verbo
                 except Exception as e:
                     if verbose:
                         print(f"{t}: error saving - {e}")
+        with _status_lock:
+            FETCH_STATUS['done'] += len(batch)
         if batch_idx < total_batches:
             time.sleep(sleep)
 
@@ -183,6 +191,9 @@ def fetch_and_save_list(tickers, batch_size=200, period='6mo', interval='1d', ou
     else:
         fresh = codes
 
+    with _status_lock:
+        FETCH_STATUS['total'] = len(fresh) + len(stale)
+        FETCH_STATUS['done'] = 0
     if stale:
         start = (min(last for _, last in stale) - pd.Timedelta(days=5)).strftime('%Y-%m-%d')
         _fetch_group([t for t, _ in stale], existing, out_dir, batch_size, retry_count, sleep_between_batches, verbose, start=start, interval=interval)
@@ -200,6 +211,33 @@ def fetch_and_save_tickers(start=1000, end=9999, batch_size=200, period='6mo', i
     else:
         codes = [f"{i:04d}.T" for i in range(start, end + 1)]
     fetch_and_save_list(codes, batch_size=batch_size, period=period, interval=interval, out_dir=out_dir, retry_count=retry_count, sleep_between_batches=sleep_between_batches, allow_excluded=allow_excluded, verbose=verbose, incremental=incremental)
+
+
+def start_background_update(tickers=None, out_dir='data', **kwargs):
+    """日足データの更新をバックグラウンドスレッドで開始する。実行中なら何もしない。
+
+    tickers を省略すると universe_jp.txt の全銘柄が対象。進捗は FETCH_STATUS で確認する。
+    """
+    with _status_lock:
+        if FETCH_STATUS['state'] == 'running':
+            return False
+        FETCH_STATUS.update(state='running', total=0, done=0, error=None)
+
+    codes = list(tickers) if tickers is not None else load_universe()
+    opts = dict(batch_size=200, period='1y', interval='1d', retry_count=1, sleep_between_batches=1.0)
+    opts.update(kwargs)
+
+    def _run():
+        try:
+            fetch_and_save_list(codes, out_dir=out_dir, **opts)
+            state, err = 'done', None
+        except Exception as e:
+            state, err = 'error', str(e)
+        with _status_lock:
+            FETCH_STATUS.update(state=state, error=err)
+
+    threading.Thread(target=_run, daemon=True).start()
+    return True
 
 
 def load_ticker_from_cache(ticker, cache_dir=None):
