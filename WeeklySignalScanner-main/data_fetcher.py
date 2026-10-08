@@ -1,4 +1,5 @@
 import os
+import sys
 import threading
 import time
 import yfinance as yf
@@ -27,6 +28,14 @@ try:
             pass
 except Exception:
     pass
+
+
+# Windows(cp932) のコンソールで表示できない文字があっても print で落とさない
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(errors='replace')
+    except Exception:
+        pass
 
 
 def _ensure_dir(path):
@@ -131,7 +140,7 @@ def _fetch_group(codes, existing, out_dir, batch_size, retry_count, sleep, verbo
         if df is None or getattr(df, 'empty', True):
             # 銘柄ごとの再取得はしない（存在しないコードで 1 件ずつ待つのが遅さの主因だった）
             if verbose:
-                print("Batch returned no data — skipped")
+                print("Batch returned no data - skipped")
         else:
             for t in batch:
                 try:

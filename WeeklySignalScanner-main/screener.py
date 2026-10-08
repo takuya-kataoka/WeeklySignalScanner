@@ -271,7 +271,7 @@ def generate_jp_tickers_under_price(max_price=1000, start=1000, end=9999, batch_
         # If df is None or empty, try per-ticker fallback downloads
         if df is None or (hasattr(df, 'empty') and df.empty):
             if verbose:
-                print("Batch empty or failed — falling back to per-ticker downloads")
+                print("Batch empty or failed - falling back to per-ticker downloads")
             for t in batch:
                 per_attempt = 0
                 per_df = None
